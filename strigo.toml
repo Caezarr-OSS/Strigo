@@ -1,0 +1,15 @@
+[general]
+log_level = "info"
+sdk_install_dir = "/home/debian/.sdks"
+cache_dir = "/home/debian/.cache/strigo"
+log_path = ""
+
+[registries]
+nexus = { 
+    type = "nexus", 
+    api_url = "http://localhost:8081/service/rest/v1/assets?repository={repository}"
+}
+
+[sdk_repositories]
+temurin = { registry = "nexus", repository = "raw", path = "jdk/adoptium/temurin" }
+corretto = { registry = "nexus", repository = "raw", path = "jdk/amazon/corretto" }
