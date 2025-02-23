@@ -1,0 +1,56 @@
+version: '3'
+
+vars:
+  BINARY_NAME: strigo
+  VERSION:
+    sh: git describe --tags --always --dirty
+  COMMIT:
+    sh: git rev-parse --short HEAD
+  DATE:
+    sh: date -u '+%Y-%m-%d_%H:%M:%S'
+  BUILD_FLAGS: -ldflags "-s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}} -X main.date={{.DATE}}"
+
+tasks:
+  build:
+    desc: Build for the current platform
+    cmds:
+      - go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/
+      - mkdir -p bin/
+
+  release:
+    desc: Build release binaries for all supported platforms
+    deps: [clean]
+    cmds:
+      # Darwin (macOS) AMD64
+      - GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}_darwin_amd64
+      # Darwin (macOS) ARM64
+      - GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}_darwin_arm64
+      # Linux AMD64
+      - GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}_linux_amd64
+      # Linux ARM64
+      - GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}_linux_arm64
+      # Create archives
+      - task: archive
+
+  archive:
+    internal: true
+    cmds:
+      # Create tar.gz archives for each binary
+      - cd bin && for f in {{.BINARY_NAME}}_* ; do tar -czf "$f.tar.gz" "$f" ; done
+      # Generate checksums
+      - cd bin && sha256sum {{.BINARY_NAME}}_* > checksums.txt
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
