@@ -14,8 +14,10 @@ var cfg *config.Config
 
 // Root command
 var rootCmd = &cobra.Command{
-	Use:   "strigo",
-	Short: "Strigo - SDK & JDK Version Manager",
+	Use:           "strigo",
+	Short:         "Strigo - SDK & JDK Version Manager",
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 func init() {
@@ -46,13 +48,17 @@ func init() {
 
 	// Add subcommands
 	rootCmd.AddCommand(availableCmd)
+	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(useCmd)
+	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(listCmd)
+
 }
 
 // Execute runs the root command
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println("❌ Error:", err)
-		logging.LogError("❌ Error executing command: %v", err)
-		os.Exit(1)
+		ExitWithError(err)
 	}
 }

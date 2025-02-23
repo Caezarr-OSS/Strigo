@@ -8,58 +8,67 @@ import (
 	"github.com/pelletier/go-toml"
 )
 
-// **GeneralConfig : Structure des paramètres généraux**
+// GeneralConfig holds general configuration parameters
 type GeneralConfig struct {
-	LogLevel      string `toml:"log_level"`
-	SDKInstallDir string `toml:"sdk_install_dir"`
-	CacheDir      string `toml:"cache_dir"`
-	LogPath       string `toml:"log_path"`
+	LogLevel          string `toml:"log_level"`
+	SDKInstallDir     string `toml:"sdk_install_dir"`
+	CacheDir          string `toml:"cache_dir"`
+	LogPath           string `toml:"log_path"`
+	KeepCache         bool   `toml:"keep_cache"`
+	JDKSecurityPath   string `toml:"jdk_security_path"`
+	SystemCacertsPath string `toml:"system_cacerts_path"`
 }
 
-// **Config : Structure représentant `strigo.toml`**
+// SDKType represents a referenced SDK type configuration
+type SDKType struct {
+	Type       string `toml:"type"`
+	InstallDir string `toml:"install_dir"`
+}
+
+// Config represents the main configuration structure
 type Config struct {
 	General         GeneralConfig            `toml:"general"`
 	Registries      map[string]Registry      `toml:"registries"`
+	SDKTypes        map[string]SDKType       `toml:"sdk_type"`
 	SDKRepositories map[string]SDKRepository `toml:"sdk_repositories"`
 }
 
-// **Registry : Structure d'un registre distant**
+// Registry represents a remote registry configuration
 type Registry struct {
 	Type   string `toml:"type"`
 	APIURL string `toml:"api_url"`
 }
 
-// **SDKRepository : Structure d'un SDK référencé**
+// SDKRepository represents a referenced SDK configuration
 type SDKRepository struct {
 	Type       string `toml:"type"`
 	Registry   string `toml:"registry"`
 	Repository string `toml:"repository"`
 	Path       string `toml:"path"`
-	Symlink    bool   `toml:"symlink"`
 }
 
-// **LoadConfig : Charge et parse le fichier `strigo.toml`**
+// LoadConfig loads and parses the configuration file
 func LoadConfig() (*Config, error) {
-	// 🔍 Détecter le fichier de configuration
+	// Detect configuration file
 	configPath := os.Getenv("STRIGO_CONFIG_PATH")
 	if configPath == "" {
-		configPath = "strigo.toml" // Par défaut
+		configPath = "strigo.toml"
 	}
 
-	// 🚀 Prelog pour capture avant InitLogger
+	// Prelog for capture before InitLogger
 	logging.PreLog("DEBUG", "📂 Loading configuration from: %s", configPath)
 
-	// 📄 Lire le fichier de configuration
+	// Read configuration file
 	file, err := os.ReadFile(configPath)
 	if err != nil {
 		logging.PreLog("ERROR", "❌ Failed to read config file: %v", err)
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// 📜 Debug: Afficher le contenu brut du fichier
+	// Debug: Display raw file content
 	logging.PreLog("DEBUG", "📜 Raw file content:\n%s", string(file))
 
-	// 🔄 Désérialiser le fichier TOML
+	// Unmarshal TOML file
 	var cfg Config
 	err = toml.Unmarshal(file, &cfg)
 	if err != nil {
@@ -67,49 +76,49 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// 🔍 Debug: Afficher la structure décodée
+	// Debug: Display decoded structure
 	logging.PreLog("DEBUG", "🔍 Decoded Config: %+v", cfg)
 
-	// 🛑 Vérification des champs obligatoires (⚠️ `LogPath` peut être vide)
+	// Check required fields (LogPath can be empty)
 	if cfg.General.SDKInstallDir == "" || cfg.General.CacheDir == "" {
 		logging.PreLog("ERROR", "❌ Configuration values are empty! Check your `strigo.toml`.")
 		logging.PreLog("DEBUG", "🔍 Debug: SDKInstallDir=%q | CacheDir=%q", cfg.General.SDKInstallDir, cfg.General.CacheDir)
 		return nil, fmt.Errorf("one or more required configuration paths are empty")
 	}
 
-	// ✅ Appliquer le log level temporaire pour filtrer `PreLog()`
+	// Apply temporary log level to filter PreLog()
 	logging.SetPreLogLevel(cfg.General.LogLevel)
 
 	logging.PreLog("DEBUG", "✅ Configuration successfully loaded.")
 	return &cfg, nil
 }
 
-// **EnsureDirectoriesExist : Vérifie et crée les répertoires nécessaires**
+// EnsureDirectoriesExist checks and creates required directories
 func EnsureDirectoriesExist(cfg *Config) error {
 	if cfg == nil {
-		return fmt.Errorf("❌ configuration is nil, cannot ensure directories")
+		return fmt.Errorf("configuration is nil, cannot ensure directories")
 	}
 
-	// 🔍 Debug: Affichage des chemins des dossiers
+	// Debug: Display directory paths
 	logging.LogDebug("🔍 Checking directory paths: LogPath=%s, SDKInstallDir=%s, CacheDir=%s",
 		cfg.General.LogPath, cfg.General.SDKInstallDir, cfg.General.CacheDir)
 
-	// 🛑 Vérifier que les chemins obligatoires ne sont pas vides
+	// Check that required paths are not empty
 	if cfg.General.SDKInstallDir == "" || cfg.General.CacheDir == "" {
-		return fmt.Errorf("❌ one or more required directory paths are empty in configuration")
+		return fmt.Errorf("one or more required directory paths are empty in configuration")
 	}
 
-	// 📂 Liste des répertoires obligatoires à créer
+	// List of mandatory directories to create
 	mandatoryPaths := []string{cfg.General.SDKInstallDir, cfg.General.CacheDir}
 
-	// 📌 `LogPath` est facultatif, on l'ajoute seulement s'il est défini
+	// LogPath is optional, add it only if defined
 	if cfg.General.LogPath != "" {
 		mandatoryPaths = append(mandatoryPaths, cfg.General.LogPath)
 	} else {
-		logging.LogDebug("⚠️ LogPath is empty. Logs will be written only to stdout.")
+		logging.LogDebug("LogPath is empty. Logs will be written only to stdout.")
 	}
 
-	// 🔄 Création des dossiers si nécessaire
+	// Create directories if needed
 	for _, path := range mandatoryPaths {
 		logging.LogDebug("📂 Ensuring directory exists: %s", path)
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
@@ -119,5 +128,23 @@ func EnsureDirectoriesExist(cfg *Config) error {
 	}
 
 	logging.LogDebug("✅ Directories verified.")
+	return nil
+}
+
+// Validate checks the configuration validity
+func (c *Config) Validate() error {
+	// Vérifier que les chemins requis pour les JDKs sont définis
+	if c.General.JDKSecurityPath == "" {
+		return fmt.Errorf("jdk_security_path must be set")
+	}
+	if c.General.SystemCacertsPath == "" {
+		return fmt.Errorf("system_cacerts_path must be set")
+	}
+
+	// Check if system_cacerts_path exists
+	if _, err := os.Stat(c.General.SystemCacertsPath); os.IsNotExist(err) {
+		return fmt.Errorf("system_cacerts_path does not exist: %s", c.General.SystemCacertsPath)
+	}
+
 	return nil
 }

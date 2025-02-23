@@ -6,20 +6,34 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strigo/config"
 	"strigo/logging"
 	"strings"
 )
 
+// SDKAsset represents an available version of an SDK
+type SDKAsset struct {
+	Version     string `json:"version"`
+	DownloadUrl string `json:"downloadUrl"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+}
+
 // NexusClient implements RepositoryClient for Nexus repositories
 type NexusClient struct{}
 
+// NexusAsset represents an asset returned by Nexus API
+type NexusAsset struct {
+	Path        string            `json:"path"`
+	DownloadUrl string            `json:"downloadUrl"`
+	Checksum    map[string]string `json:"checksum"`
+}
+
 // GetAvailableVersions fetches available versions of a JDK from a Nexus repository.
-func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry config.Registry, versionFilter string) ([]string, error) {
-	versionMap := make(map[string][]string)
-	var allVersions []string
+func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry config.Registry, versionFilter string) ([]SDKAsset, error) {
+	var sdkAssets []SDKAsset
 	var ignoredFiles []string
+	seenVersions := make(map[string]bool) // Pour suivre les versions déjà vues
 
 	// Ensure apiURL is correctly formatted and replace placeholders
 	apiURL := strings.ReplaceAll(registry.APIURL, "{repository}", repo.Repository)
@@ -41,99 +55,106 @@ func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry c
 
 	// Parse JSON response
 	var data struct {
-		Items []struct {
-			Path string `json:"path"`
-		} `json:"items"`
+		Items []NexusAsset `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON response: %v", err)
 	}
 
-	// Normalize repo.Path to match Nexus paths
-	repoPath := repo.Path
-	if !strings.HasPrefix(repoPath, "/") {
-		repoPath = "/" + repoPath
-	}
+	logging.LogDebug("🔍 Raw items from Nexus:")
 
-	// Process retrieved versions
+	// Construire le chemin complet pour la distribution
+	distributionPath := fmt.Sprintf("/%s/", repo.Path)
+
 	for _, item := range data.Items {
-		logging.LogDebug("🔹 Raw path from Nexus: %s", item.Path)
+		logging.LogDebug("   Path: %s", item.Path)
 
-		// Ensure the file belongs to the correct directory
-		if !strings.HasPrefix(item.Path, repoPath) {
+		// Vérifier si le chemin correspond à la distribution demandée
+		if !strings.Contains(item.Path, distributionPath) {
 			ignoredFiles = append(ignoredFiles, item.Path)
 			continue
 		}
 
-		// Extract version name
 		versionName := extractVersionName(item.Path)
 		if versionName != "" {
-			// Extract major version (8, 11, 17, etc.)
-			versionMajor := extractMajorVersion(versionName)
-			versionMap[versionMajor] = append(versionMap[versionMajor], versionName)
-			allVersions = append(allVersions, versionName) // Store versions for return
+			logging.LogDebug("   Extracted version: %s from path: %s", versionName, item.Path)
+			// Vérifier si cette version a déjà été vue
+			if !seenVersions[versionName] {
+				seenVersions[versionName] = true
+				sdkAsset := SDKAsset{
+					Version:     versionName,
+					DownloadUrl: item.DownloadUrl,
+					Filename:    versionName,
+					// Size sera ajouté plus tard si nécessaire
+				}
+				sdkAssets = append(sdkAssets, sdkAsset)
+			}
+		} else {
+			ignoredFiles = append(ignoredFiles, item.Path)
 		}
 	}
 
-	// Log ignored files for debugging
 	if len(ignoredFiles) > 0 {
-		logging.LogDebug("❌ Ignored files (not matching path %s):", repoPath)
+		logging.LogDebug("❌ Ignored files:")
 		for _, f := range ignoredFiles {
 			logging.LogDebug("   - %s", f)
 		}
 	}
 
-	// Final check and structured output
-	if len(versionMap) == 0 {
-		logging.LogError("❌ No versions found for %s in Nexus", repo.Path)
+	// Filtrer les versions si un filtre est spécifié
+	if versionFilter != "" {
+		var filteredAssets []SDKAsset
+		for _, asset := range sdkAssets {
+			if strings.Contains(asset.Version, versionFilter) {
+				filteredAssets = append(filteredAssets, asset)
+			}
+		}
+		sdkAssets = filteredAssets
+	}
+
+	if len(sdkAssets) == 0 {
+		if versionFilter != "" {
+			return nil, fmt.Errorf("no version %s found for %s", versionFilter, repo.Path)
+		}
 		return nil, fmt.Errorf("no versions found for %s", repo.Path)
 	}
 
-	// Sort major versions numerically before displaying them
-	availableMajors := []int{}
-	for major := range versionMap {
-		majorNum, err := strconv.Atoi(major)
-		if err == nil {
-			availableMajors = append(availableMajors, majorNum)
-		}
-	}
-	sort.Ints(availableMajors) // Sort numerically
+	// Trier les versions
+	sort.Slice(sdkAssets, func(i, j int) bool {
+		return sdkAssets[i].Version > sdkAssets[j].Version
+	})
 
-	// Convert back to string for display
-	sortedMajorVersions := []string{}
-	for _, major := range availableMajors {
-		sortedMajorVersions = append(sortedMajorVersions, strconv.Itoa(major))
-	}
-
-	// If a version filter is applied but not found, list available versions
-	if versionFilter != "" {
-		if versions, exists := versionMap[versionFilter]; exists {
-			return versions, nil
-		}
-		logging.LogError("❌ No version %s found for %s", versionFilter, repo.Path)
-		logging.LogInfo("🔹 Available major versions: %s", strings.Join(sortedMajorVersions, ", "))
-		return nil, fmt.Errorf("no version %s found for %s. Available versions: %s", versionFilter, repo.Path, strings.Join(sortedMajorVersions, ", "))
-	}
-
-	// ✅ Don't log here! Logging should be done at the call site.
-	return allVersions, nil
+	return sdkAssets, nil
 }
 
 // extractVersionName extracts the versioned filename from a Nexus path.
 func extractVersionName(path string) string {
-	segments := strings.Split(path, "/")
-	if len(segments) > 0 {
-		return segments[len(segments)-1] // Return the last element (filename)
+	// Handle different naming patterns
+	patterns := []string{
+		`corretto-(\d+\.\d+\.\d+\.\d+)`,             // For Corretto: 11.0.26.4.1
+		`jdk-(\d+\.\d+\.\d+_\d+)`,                   // For Temurin: 11.0.26_4
+		`jdk_x64_linux_hotspot_(\d+\.\d+\.\d+_\d+)`, // Alternative Temurin pattern
+		`(\d+u\d+\w+)`,                              // For older versions: 8u442b06
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(path); len(matches) > 1 {
+			return matches[1]
+		}
 	}
 	return ""
 }
 
-// extractMajorVersion extracts the major version (8, 11, 17, etc.) from a versioned filename.
-func extractMajorVersion(versionName string) string {
-	re := regexp.MustCompile(`(\d+)(\.\d+)*`)
-	match := re.FindStringSubmatch(versionName)
-	if len(match) > 1 {
-		return match[1] // Return the first matched number (major version)
+// FindAssetByVersion helps locate a specific asset in the version map
+func FindAssetByVersion(versionMap map[string][]NexusAsset, targetVersion string) *NexusAsset {
+	for _, assets := range versionMap {
+		for _, asset := range assets {
+			// Check if the file name contains the target version
+			if strings.Contains(asset.Path, targetVersion) {
+				return &asset
+			}
+		}
 	}
-	return "unknown"
+	return nil
 }
