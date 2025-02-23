@@ -76,11 +76,27 @@ func getJDKBinPath(basePath string) (string, error) {
 func findRcFile() (string, error) {
 	shell := os.Getenv("SHELL")
 	home := os.Getenv("HOME")
-	
-	// Liste des fichiers RC possibles dans l'ordre de préférence
-	rcFiles := []string{
-		filepath.Join(home, ".zshrc"),
-		filepath.Join(home, ".bashrc"),
+
+	// Liste des fichiers RC possibles
+	var rcFiles []string
+
+	// Déterminer l'ordre en fonction du shell
+	if strings.HasSuffix(shell, "zsh") {
+		rcFiles = []string{
+			filepath.Join(home, ".zshrc"),
+			filepath.Join(home, ".bashrc"), // fallback
+		}
+	} else if strings.HasSuffix(shell, "bash") {
+		rcFiles = []string{
+			filepath.Join(home, ".bashrc"),
+			filepath.Join(home, ".zshrc"), // fallback
+		}
+	} else {
+		// Shell non reconnu, essayer les deux
+		rcFiles = []string{
+			filepath.Join(home, ".bashrc"),
+			filepath.Join(home, ".zshrc"),
+		}
 	}
 
 	// Chercher le premier fichier RC existant
