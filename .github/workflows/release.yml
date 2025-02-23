@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*' # Déclencher sur les tags qui commencent par 'v'
+      - '*'  # Accepte n'importe quel tag
 
 permissions:
   contents: write # Nécessaire pour créer des releases
