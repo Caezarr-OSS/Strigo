@@ -1,0 +1,41 @@
+[general]
+log_level = "debug"
+sdk_install_dir = "/home/debian/.sdks"
+cache_dir = "/home/debian/.cache/strigo"
+log_path = ""
+keep_cache = false
+
+# Java certificates paths
+jdk_security_path = "lib/security/cacerts"        # Relative path in JDK
+system_cacerts_path = "/etc/ssl/certs"  # System Java certificates path
+
+[registries]
+nexus = { 
+    type = "nexus", 
+    api_url = "http://localhost:8081/service/rest/v1/assets?repository={repository}"
+}
+
+[sdk_type]
+jdk = {
+    type = "jdk",
+    install_dir = "jdks"
+}
+node = {
+    type = "node",
+    install_dir = "nodes"
+}
+
+
+[sdk_repositories]
+temurin = { 
+    registry = "nexus", 
+    repository = "raw", 
+    type = "jdk",
+    path = "jdk/adoptium/temurin"
+}
+corretto = { 
+    registry = "nexus", 
+    repository = "raw", 
+    type = "jdk",
+    path = "jdk/amazon/corretto"
+}
