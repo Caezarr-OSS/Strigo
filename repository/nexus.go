@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strigo/config"
 	"strigo/logging"
 	"strings"
@@ -62,20 +63,26 @@ func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry c
 	}
 
 	logging.LogDebug("🔍 Raw items from Nexus:")
+	logging.LogDebug("Found %d items in response", len(data.Items))
+	for _, item := range data.Items {
+		logging.LogDebug("Item path: %s, downloadUrl: %s", item.Path, item.DownloadUrl)
+	}
 
 	// Construire le chemin complet pour la distribution
-	distributionPath := fmt.Sprintf("/%s/", repo.Path)
+	distributionPath := repo.Path
+	logging.LogDebug("Looking for distribution path: %s", distributionPath)
 
 	for _, item := range data.Items {
 		logging.LogDebug("   Path: %s", item.Path)
 
 		// Vérifier si le chemin correspond à la distribution demandée
-		if !strings.Contains(item.Path, distributionPath) {
+		if !strings.Contains(item.Path, distributionPath) && distributionPath != "" {
+			logging.LogDebug("   Ignoring file: path does not contain %s", distributionPath)
 			ignoredFiles = append(ignoredFiles, item.Path)
 			continue
 		}
 
-		versionName := extractVersionName(item.Path)
+		versionName := ExtractVersionName(item.Path)
 		if versionName != "" {
 			logging.LogDebug("   Extracted version: %s from path: %s", versionName, item.Path)
 			// Vérifier si cette version a déjà été vue
@@ -127,22 +134,54 @@ func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry c
 	return sdkAssets, nil
 }
 
-// extractVersionName extracts the versioned filename from a Nexus path.
-func extractVersionName(path string) string {
+// ExtractVersionName extracts the versioned filename from a Nexus path.
+func ExtractVersionName(path string) string {
+	logging.LogDebug("Extracting version from path: %s", path)
+
 	// Handle different naming patterns
 	patterns := []string{
 		`corretto-(\d+\.\d+\.\d+\.\d+)`,             // For Corretto: 11.0.26.4.1
 		`jdk-(\d+\.\d+\.\d+_\d+)`,                   // For Temurin: 11.0.26_4
 		`jdk_x64_linux_hotspot_(\d+\.\d+\.\d+_\d+)`, // Alternative Temurin pattern
 		`(\d+u\d+\w+)`,                              // For older versions: 8u442b06
+		`node-v(\d+\.\d+\.\d+)-linux-x64`,           // For Node.js: node-v22.13.1-linux-x64
+		`amazon-corretto-(\d+\.\d+\.\d+\.\d+)`,      // For Amazon Corretto
+		`zulu\d+\.\d+\.\d+-ca-jdk(\d+\.\d+\.\d+)`,   // For Zulu
 	}
 
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		if matches := re.FindStringSubmatch(path); len(matches) > 1 {
+			logging.LogDebug("  Found version %s using pattern %s", matches[1], pattern)
 			return matches[1]
 		}
 	}
+
+	// Fallback: try to extract version from path components
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		logging.LogDebug("  Checking path component: %s", part)
+
+		// Look for version-like patterns in path components
+		if strings.HasPrefix(part, "v") {
+			version := strings.TrimPrefix(part, "v")
+			if _, err := strconv.Atoi(strings.Split(version, ".")[0]); err == nil {
+				logging.LogDebug("  Found version in path component: %s", version)
+				return version
+			}
+		}
+
+		// Check for version in the format jdk-X.Y.Z or jdkX.Y.Z
+		if strings.Contains(part, "jdk") {
+			version := strings.TrimPrefix(strings.TrimPrefix(part, "jdk-"), "jdk")
+			if _, err := strconv.Atoi(strings.Split(version, ".")[0]); err == nil {
+				logging.LogDebug("  Found version in JDK component: %s", version)
+				return version
+			}
+		}
+	}
+
+	logging.LogDebug("  No version found in path")
 	return ""
 }
 

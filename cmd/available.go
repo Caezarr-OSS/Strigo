@@ -169,6 +169,43 @@ func handleTypeOnly(sdkType string, output *AvailableOutput) error {
 	return nil
 }
 
+// ExtractMajorVersion extrait la version majeure d'une chaîne de version
+func ExtractMajorVersion(version string) string {
+	logging.LogDebug("Extracting major version from: %s", version)
+
+	// Si la version est vide, retourner vide
+	if version == "" {
+		logging.LogDebug("Empty version string")
+		return ""
+	}
+
+	// Pour les versions Node.js qui commencent directement par un nombre (22.13.1)
+	if firstDot := strings.Index(version, "."); firstDot != -1 {
+		majorPart := version[:firstDot]
+		if _, err := strconv.Atoi(majorPart); err == nil {
+			logging.LogDebug("Found major version (direct number): %s", majorPart)
+			return majorPart
+		}
+	}
+
+	// Supprimer tout préfixe non numérique (comme "jdk-")
+	version = strings.TrimLeft(version, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_")
+
+	// Trouver le premier nombre qui représente la version majeure
+	parts := strings.Split(version, ".")
+	if len(parts) > 0 {
+		// Pour les versions comme "8u442b06", extraire le 8
+		majorPart := strings.Split(parts[0], "u")[0]
+		if _, err := strconv.Atoi(majorPart); err == nil {
+			logging.LogDebug("Found major version (after cleanup): %s", majorPart)
+			return majorPart
+		}
+	}
+
+	logging.LogDebug("No major version found")
+	return ""
+}
+
 func handleFullCommand(sdkType, distribution, versionFilter string, output *AvailableOutput) error {
 	// Check if the distribution exists
 	sdkRepo, exists := cfg.SDKRepositories[distribution]
@@ -187,10 +224,56 @@ func handleFullCommand(sdkType, distribution, versionFilter string, output *Avai
 	}
 
 	// Fetch available versions
-	versions, err := repository.FetchAvailableVersions(sdkRepo, registry, versionFilter, true)
+	versions, err := repository.FetchAvailableVersions(sdkRepo, registry, "", true)
 	if err != nil {
 		logging.LogError("❌ %v", err)
 		return nil
+	}
+
+	logging.LogDebug("Found %d versions before filtering", len(versions))
+
+	// Collecter toutes les versions majeures disponibles
+	allMajorVersions := make(map[string]bool)
+	for _, v := range versions {
+		logging.LogDebug("Version before filtering: %s", v.Version)
+		majorVersion := ExtractMajorVersion(v.Version)
+		if majorVersion != "" {
+			allMajorVersions[majorVersion] = true
+		}
+	}
+
+	// Convertir en slice et trier
+	var availableMajors []int
+	for major := range allMajorVersions {
+		if num, err := strconv.Atoi(major); err == nil {
+			availableMajors = append(availableMajors, num)
+		}
+	}
+	sort.Ints(availableMajors)
+
+	// Filtrer les versions si un filtre est spécifié
+	if versionFilter != "" {
+		var filteredVersions []repository.SDKAsset
+		for _, v := range versions {
+			logging.LogDebug("Checking version %s against filter %s", v.Version, versionFilter)
+			if ExtractMajorVersion(v.Version) == versionFilter {
+				logging.LogDebug("  ✓ Version matches filter")
+				filteredVersions = append(filteredVersions, v)
+			} else {
+				logging.LogDebug("  ✗ Version does not match filter")
+			}
+		}
+
+		// Si aucune version ne correspond au filtre, afficher les versions disponibles
+		if len(filteredVersions) == 0 {
+			logging.LogOutput("❌ No version found matching major version %s", versionFilter)
+			logging.LogOutput("")
+			logging.LogOutput("💡 Available major versions are: %s", joinInts(availableMajors))
+			return nil
+		}
+
+		versions = filteredVersions
+		logging.LogDebug("Found %d versions after filtering", len(versions))
 	}
 
 	// Trier les versions
@@ -204,12 +287,32 @@ func handleFullCommand(sdkType, distribution, versionFilter string, output *Avai
 	return nil
 }
 
+// joinInts convertit une slice d'entiers en chaîne de caractères
+func joinInts(numbers []int) string {
+	var strNumbers []string
+	for _, num := range numbers {
+		strNumbers = append(strNumbers, strconv.Itoa(num))
+	}
+	return strings.Join(strNumbers, ", ")
+}
+
 func displayVersions(versions []repository.SDKAsset) {
+	logging.LogDebug("Processing %d versions for display", len(versions))
+
 	// Grouper les versions par version majeure
 	versionGroups := make(map[string][]string)
+	allMajorVersions := make(map[string]bool)
+
+	// Récupérer toutes les versions majeures disponibles
 	for _, asset := range versions {
-		majorVersion := repository.ExtractMajorVersion(asset.Version)
-		versionGroups[majorVersion] = append(versionGroups[majorVersion], asset.Version)
+		logging.LogDebug("Processing version: %s", asset.Version)
+		majorVersion := ExtractMajorVersion(asset.Version)
+		logging.LogDebug("  Extracted major version: %s", majorVersion)
+		if majorVersion != "" {
+			allMajorVersions[majorVersion] = true
+			versionGroups[majorVersion] = append(versionGroups[majorVersion], asset.Version)
+			logging.LogDebug("  Added to version groups. Current groups: %v", versionGroups)
+		}
 	}
 
 	// Obtenir les versions majeures triées
@@ -223,6 +326,30 @@ func displayVersions(versions []repository.SDKAsset) {
 
 	logging.LogOutput("🔹 Available versions:")
 	logging.LogOutput("─────────────────────────")
+
+	// Si aucune version n'est trouvée
+	if len(majorVersions) == 0 {
+		logging.LogOutput("❌ No major version found matching your criteria")
+		logging.LogOutput("")
+
+		// Créer la liste des versions majeures disponibles
+		var availableMajors []int
+		for major := range allMajorVersions {
+			if num, err := strconv.Atoi(major); err == nil {
+				availableMajors = append(availableMajors, num)
+			}
+		}
+		sort.Ints(availableMajors)
+
+		// Convertir les versions en chaînes pour l'affichage
+		var majorStrings []string
+		for _, num := range availableMajors {
+			majorStrings = append(majorStrings, strconv.Itoa(num))
+		}
+
+		logging.LogOutput("💡 Available major versions are: %s", strings.Join(majorStrings, ", "))
+		return
+	}
 
 	// Afficher les versions par groupe
 	for _, majorNum := range majorVersions {

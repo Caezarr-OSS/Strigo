@@ -13,10 +13,12 @@ import (
 
 var (
 	setEnvVar bool
+	unsetEnv  bool
 )
 
 func init() {
 	useCmd.Flags().BoolVarP(&setEnvVar, "set-env", "e", false, "Set environment variables in shell configuration file (~/.bashrc or ~/.zshrc)")
+	useCmd.Flags().BoolVar(&unsetEnv, "unset", false, "Remove environment variables from shell configuration file")
 }
 
 var useCmd = &cobra.Command{
@@ -27,6 +29,15 @@ strigo use jdk temurin 11.0.24_8
 
 This will create a symbolic link to the specified version.`,
 	Args: func(cmd *cobra.Command, args []string) error {
+		if unsetEnv {
+			if len(args) != 1 || args[0] != "jdk" {
+				return fmt.Errorf("\n❌ Invalid arguments for --unset\n\n" +
+					"Usage:\n" +
+					"  strigo use jdk --unset")
+			}
+			return nil
+		}
+
 		if len(args) != 3 {
 			return fmt.Errorf("\n❌ Invalid number of arguments\n\n" +
 				"Usage:\n" +
@@ -47,6 +58,13 @@ This will create a symbolic link to the specified version.`,
 }
 
 func use(cmd *cobra.Command, args []string) {
+	if unsetEnv {
+		if err := handleUnset(args[0]); err != nil {
+			ExitWithError(err)
+		}
+		return
+	}
+
 	if err := handleUse(args[0], args[1], args[2]); err != nil {
 		ExitWithError(err)
 	}
@@ -107,6 +125,55 @@ func findRcFile() (string, error) {
 	}
 
 	return "", fmt.Errorf("no shell configuration file found (.zshrc or .bashrc)")
+}
+
+func handleUnset(sdkType string) error {
+	if sdkType != "jdk" {
+		return fmt.Errorf("unset is only supported for JDK")
+	}
+
+	rcFile, err := findRcFile()
+	if err != nil {
+		return fmt.Errorf("could not find shell configuration file: %w", err)
+	}
+
+	// Lire le contenu actuel
+	content, err := os.ReadFile(rcFile)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", rcFile, err)
+	}
+
+	// Supprimer le bloc de configuration Strigo
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	var removed bool
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		// Si on trouve le commentaire Strigo
+		if strings.Contains(line, "# Added by Strigo - JDK configuration") {
+			// On saute cette ligne et les 2 suivantes
+			i += 2 // +2 car la boucle fera +1
+			removed = true
+			continue
+		}
+		newLines = append(newLines, line)
+	}
+
+	if !removed {
+		logging.LogInfo("ℹ️  No Strigo JDK configuration found in %s", rcFile)
+		return nil
+	}
+
+	// Écrire le fichier
+	newContent := strings.Join(newLines, "\n") + "\n"
+	if err := os.WriteFile(rcFile, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to update %s: %w", rcFile, err)
+	}
+
+	logging.LogInfo("✅ Successfully removed Strigo JDK configuration from %s", rcFile)
+	logging.LogInfo("ℹ️  To apply these changes, run: source %s", rcFile)
+
+	return nil
 }
 
 func handleUse(sdkType, distribution, version string) error {
