@@ -37,12 +37,17 @@ func (c *NexusClient) GetAvailableVersions(repo config.SDKRepository, registry c
 	seenVersions := make(map[string]bool) // Pour suivre les versions déjà vues
 
 	// Ensure apiURL is correctly formatted and replace placeholders
+	logging.LogDebug("🔍 Registry API URL: %s", registry.APIURL)
+	logging.LogDebug("🔍 Repository: %s", repo.Repository)
+	logging.LogDebug("🔍 Path: %s", repo.Path)
+
 	apiURL := strings.ReplaceAll(registry.APIURL, "{repository}", repo.Repository)
+	logging.LogDebug("🔍 API URL after repository replacement: %s", apiURL)
 
 	// Build final request URL
 	requestURL := fmt.Sprintf("%s&path=%s", apiURL, repo.Path)
 
-	logging.LogDebug("🔍 Querying Nexus API: %s", requestURL)
+	logging.LogDebug("🔍 Final Nexus API URL: %s", requestURL)
 
 	resp, err := http.Get(requestURL)
 	if err != nil {

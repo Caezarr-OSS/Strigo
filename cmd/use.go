@@ -30,10 +30,10 @@ strigo use jdk temurin 11.0.24_8
 This will create a symbolic link to the specified version.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if unsetEnv {
-			if len(args) != 1 || args[0] != "jdk" {
+			if len(args) != 1 || (args[0] != "jdk" && args[0] != "node") {
 				return fmt.Errorf("\n❌ Invalid arguments for --unset\n\n" +
 					"Usage:\n" +
-					"  strigo use jdk --unset")
+					"  strigo use [jdk|node] --unset")
 			}
 			return nil
 		}
@@ -70,25 +70,28 @@ func use(cmd *cobra.Command, args []string) {
 	}
 }
 
-func getJDKBinPath(basePath string) (string, error) {
+func getSDKBinPath(basePath string, sdkType string) (string, error) {
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read installation directory: %w", err)
 	}
 
-	var jdkDir string
+	var sdkDir string
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "jdk") {
-			jdkDir = entry.Name()
-			break
+		if entry.IsDir() {
+			if (sdkType == "jdk" && strings.HasPrefix(entry.Name(), "jdk")) ||
+				(sdkType == "node" && strings.HasPrefix(entry.Name(), "node")) {
+				sdkDir = entry.Name()
+				break
+			}
 		}
 	}
 
-	if jdkDir == "" {
-		return "", fmt.Errorf("could not find JDK directory in %s", basePath)
+	if sdkDir == "" {
+		return "", fmt.Errorf("could not find %s directory in %s", strings.ToUpper(sdkType), basePath)
 	}
 
-	return filepath.Join(basePath, jdkDir), nil
+	return filepath.Join(basePath, sdkDir), nil
 }
 
 func findRcFile() (string, error) {
@@ -128,8 +131,8 @@ func findRcFile() (string, error) {
 }
 
 func handleUnset(sdkType string) error {
-	if sdkType != "jdk" {
-		return fmt.Errorf("unset is only supported for JDK")
+	if sdkType != "jdk" && sdkType != "node" {
+		return fmt.Errorf("unset is only supported for JDK and Node.js")
 	}
 
 	rcFile, err := findRcFile()
@@ -150,7 +153,7 @@ func handleUnset(sdkType string) error {
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		// Si on trouve le commentaire Strigo
-		if strings.Contains(line, "# Added by Strigo - JDK configuration") {
+		if strings.Contains(line, fmt.Sprintf("# Added by Strigo - %s configuration", strings.ToUpper(sdkType))) {
 			// On saute cette ligne et les 2 suivantes
 			i += 2 // +2 car la boucle fera +1
 			removed = true
@@ -160,7 +163,7 @@ func handleUnset(sdkType string) error {
 	}
 
 	if !removed {
-		logging.LogInfo("ℹ️  No Strigo JDK configuration found in %s", rcFile)
+		logging.LogInfo("ℹ️  No Strigo %s configuration found in %s", strings.ToUpper(sdkType), rcFile)
 		return nil
 	}
 
@@ -170,7 +173,7 @@ func handleUnset(sdkType string) error {
 		return fmt.Errorf("failed to update %s: %w", rcFile, err)
 	}
 
-	logging.LogInfo("✅ Successfully removed Strigo JDK configuration from %s", rcFile)
+	logging.LogInfo("✅ Successfully removed Strigo %s configuration from %s", strings.ToUpper(sdkType), rcFile)
 	logging.LogInfo("ℹ️  To apply these changes, run: source %s", rcFile)
 
 	return nil
@@ -199,15 +202,23 @@ func handleUse(sdkType, distribution, version string) error {
 			version, sdkType, distribution, version)
 	}
 
-	// Configurer JAVA_HOME pour les JDKs
-	if sdkType == "jdk" {
-		jdkPath, err := getJDKBinPath(installPath)
+	// Configurer les variables d'environnement
+	if sdkType == "jdk" || sdkType == "node" {
+		// Trouver le chemin du répertoire bin
+		binPath, err := getSDKBinPath(installPath, sdkType)
 		if err != nil {
 			return err
 		}
 
-		// Préparer les exports
-		exports := fmt.Sprintf("export JAVA_HOME=%s\nexport PATH=$JAVA_HOME/bin:$PATH", jdkPath)
+		// Préparer les exports selon le type de SDK
+		var envVar string
+		if sdkType == "jdk" {
+			envVar = "JAVA_HOME"
+		} else {
+			envVar = "NODE_HOME"
+		}
+
+		exports := fmt.Sprintf("export %s=%s\nexport PATH=$%s/bin:$PATH", envVar, binPath, envVar)
 
 		if setEnvVar {
 			rcFile, err := findRcFile()
@@ -224,17 +235,17 @@ func handleUse(sdkType, distribution, version string) error {
 				return fmt.Errorf("failed to read %s: %w", rcFile, err)
 			}
 
-			// Supprimer les anciennes configurations JAVA_HOME
+			// Supprimer les anciennes configurations
 			lines := strings.Split(string(content), "\n")
 			var newLines []string
 			for _, line := range lines {
-				if !strings.Contains(line, "JAVA_HOME=") && !strings.Contains(line, "PATH=$JAVA_HOME") {
+				if !strings.Contains(line, envVar+"=") && !strings.Contains(line, "PATH=$"+envVar) {
 					newLines = append(newLines, line)
 				}
 			}
 
 			// Ajouter les nouvelles configurations avec un commentaire
-			newContent := strings.Join(newLines, "\n") + "\n\n# Added by Strigo - JDK configuration\n" + exports + "\n"
+			newContent := strings.Join(newLines, "\n") + fmt.Sprintf("\n\n# Added by Strigo - %s configuration\n%s\n", strings.ToUpper(sdkType), exports)
 
 			// Écrire le fichier
 			if err := os.WriteFile(rcFile, []byte(newContent), 0644); err != nil {
@@ -247,7 +258,7 @@ func handleUse(sdkType, distribution, version string) error {
 			logging.LogInfo("ℹ️  To apply these changes, run: source %s", rcFile)
 		} else {
 			logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
-			logging.LogInfo("ℹ️  To use this JDK, add these lines to your shell configuration:")
+			logging.LogInfo("ℹ️  To use this %s, add these lines to your shell configuration:", strings.ToUpper(sdkType))
 			fmt.Println(exports)
 		}
 	}

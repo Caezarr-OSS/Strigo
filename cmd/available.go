@@ -283,7 +283,7 @@ func handleFullCommand(sdkType, distribution, versionFilter string, output *Avai
 
 	output.Versions = versions
 
-	displayVersions(versions)
+	displayVersions(versions, sdkType, distribution)
 	return nil
 }
 
@@ -296,7 +296,7 @@ func joinInts(numbers []int) string {
 	return strings.Join(strNumbers, ", ")
 }
 
-func displayVersions(versions []repository.SDKAsset) {
+func displayVersions(versions []repository.SDKAsset, sdkType, distribution string) {
 	logging.LogDebug("Processing %d versions for display", len(versions))
 
 	// Grouper les versions par version majeure
@@ -369,5 +369,5 @@ func displayVersions(versions []repository.SDKAsset) {
 	}
 
 	logging.LogOutput("💡 To install a specific version:")
-	logging.LogOutput("   strigo install jdk [distribution] [version]")
+	logging.LogOutput(fmt.Sprintf("   strigo install %s %s [version]", sdkType, distribution))
 }
