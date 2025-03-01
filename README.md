@@ -6,6 +6,7 @@ Strigo is a lightweight and efficient CLI tool designed for managing JDKs and SD
 
 - **Multiple JDK Distributions Support**: Supports Temurin, Corretto, and Zulu distributions.
 - **Customizable Configuration**: Uses a `strigo.toml` file for repository definitions.
+- **Flexible Shell Configuration**: Supports different shell configuration files (`.bashrc`, `.zshrc`) for environment setup.
 - **Nexus Repository Integration**: Fetches JDKs from a Nexus repository with a predefined structure.
 - **Logging System**: Multi-level logging (`DEBUG`, `INFO`, `ERROR`) with file and console output.
 - **Portable and Self-Contained**: No dependencies other than the configured Nexus repository.
@@ -133,6 +134,7 @@ log_level = "info"
 sdk_install_dir = "/home/user/.sdks"
 cache_dir = "/home/user/.cache/strigo"
 log_path = "/home/user/.logs/strigo"
+shell_config_path = "~/.bashrc"  # Shell configuration file path (e.g. ~/.bashrc, ~/.zshrc)
 
 [registries]
 nexus = { 

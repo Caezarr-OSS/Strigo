@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strigo/logging"
+	"strings"
 
 	"github.com/pelletier/go-toml"
 )
@@ -17,6 +19,7 @@ type GeneralConfig struct {
 	KeepCache         bool   `toml:"keep_cache"`
 	JDKSecurityPath   string `toml:"jdk_security_path"`
 	SystemCacertsPath string `toml:"system_cacerts_path"`
+	ShellConfigPath   string `toml:"shell_config_path"`
 }
 
 // SDKType represents a referenced SDK type configuration
@@ -45,6 +48,18 @@ type SDKRepository struct {
 	Registry   string `toml:"registry"`
 	Repository string `toml:"repository"`
 	Path       string `toml:"path"`
+}
+
+// ExpandTilde expands ~ to the user's home directory
+func ExpandTilde(path string) (string, error) {
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		return filepath.Join(home, path[1:]), nil
+	}
+	return path, nil
 }
 
 // LoadConfig loads and parses the configuration file
@@ -133,6 +148,21 @@ func EnsureDirectoriesExist(cfg *Config) error {
 
 // Validate checks the configuration validity
 func (c *Config) Validate() error {
+	// Expand tilde in shell_config_path if set
+	if c.General.ShellConfigPath != "" {
+		expandedPath, err := ExpandTilde(c.General.ShellConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to expand shell_config_path: %w", err)
+		}
+		
+		// Check if the file exists
+		if _, err := os.Stat(expandedPath); err != nil {
+			return fmt.Errorf("shell configuration file not found: %s", expandedPath)
+		}
+		
+		c.General.ShellConfigPath = expandedPath
+	}
+
 	// Vérifier que les chemins requis pour les JDKs sont définis
 	if c.General.JDKSecurityPath == "" {
 		return fmt.Errorf("jdk_security_path must be set")

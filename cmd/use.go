@@ -95,6 +95,12 @@ func getSDKBinPath(basePath string, sdkType string) (string, error) {
 }
 
 func findRcFile() (string, error) {
+	// Check if shell_config_path is set in config
+	if cfg.General.ShellConfigPath != "" {
+		return cfg.General.ShellConfigPath, nil
+	}
+
+	// Auto-detect based on current shell
 	shell := os.Getenv("SHELL")
 	home := os.Getenv("HOME")
 
@@ -127,10 +133,16 @@ func findRcFile() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no shell configuration file found (.zshrc or .bashrc)")
+	return "", fmt.Errorf("no shell configuration file found (.zshrc or .bashrc). Please set shell_config_path in strigo.toml")
 }
 
 func handleUnset(sdkType string) error {
+	// Load configuration
+	var err error
+	cfg, err = config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
 	if sdkType != "jdk" && sdkType != "node" {
 		return fmt.Errorf("unset is only supported for JDK and Node.js")
 	}
@@ -140,10 +152,16 @@ func handleUnset(sdkType string) error {
 		return fmt.Errorf("could not find shell configuration file: %w", err)
 	}
 
-	// Lire le contenu actuel
-	content, err := os.ReadFile(rcFile)
+	// Expand tilde if present
+	expandedPath, err := config.ExpandTilde(rcFile)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", rcFile, err)
+		return fmt.Errorf("failed to expand path %s: %w", rcFile, err)
+	}
+
+	// Lire le contenu actuel
+	content, err := os.ReadFile(expandedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", expandedPath, err)
 	}
 
 	// Supprimer le bloc de configuration Strigo
@@ -169,20 +187,22 @@ func handleUnset(sdkType string) error {
 
 	// Écrire le fichier
 	newContent := strings.Join(newLines, "\n") + "\n"
-	if err := os.WriteFile(rcFile, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("failed to update %s: %w", rcFile, err)
+	if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to update %s: %w", expandedPath, err)
 	}
 
-	logging.LogInfo("✅ Successfully removed Strigo %s configuration from %s", strings.ToUpper(sdkType), rcFile)
-	logging.LogInfo("ℹ️  To apply these changes, run: source %s", rcFile)
+	logging.LogInfo("✅ Successfully removed Strigo %s configuration from %s", strings.ToUpper(sdkType), expandedPath)
+	logging.LogInfo("ℹ️  To apply these changes, run: source %s", expandedPath)
 
 	return nil
 }
 
 func handleUse(sdkType, distribution, version string) error {
-	cfg, err := config.LoadConfig()
+	// Load configuration
+	var err error
+	cfg, err = config.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	// Vérifier si le type de SDK existe
@@ -229,10 +249,16 @@ func handleUse(sdkType, distribution, version string) error {
 				return nil
 			}
 
-			// Lire le contenu actuel
-			content, err := os.ReadFile(rcFile)
+			// Expand tilde if present
+			expandedPath, err := config.ExpandTilde(rcFile)
 			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", rcFile, err)
+				return fmt.Errorf("failed to expand path %s: %w", rcFile, err)
+			}
+
+			// Lire le contenu actuel
+			content, err := os.ReadFile(expandedPath)
+			if err != nil {
+				return fmt.Errorf("failed to read %s: %w", expandedPath, err)
 			}
 
 			// Supprimer les anciennes configurations
@@ -248,14 +274,14 @@ func handleUse(sdkType, distribution, version string) error {
 			newContent := strings.Join(newLines, "\n") + fmt.Sprintf("\n\n# Added by Strigo - %s configuration\n%s\n", strings.ToUpper(sdkType), exports)
 
 			// Écrire le fichier
-			if err := os.WriteFile(rcFile, []byte(newContent), 0644); err != nil {
-				return fmt.Errorf("failed to update %s: %w", rcFile, err)
+			if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
+				return fmt.Errorf("failed to update %s: %w", expandedPath, err)
 			}
 
 			logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
-			logging.LogInfo("📝 Added to %s:", rcFile)
+			logging.LogInfo("📝 Added to %s:", expandedPath)
 			fmt.Println(exports)
-			logging.LogInfo("ℹ️  To apply these changes, run: source %s", rcFile)
+			logging.LogInfo("ℹ️  To apply these changes, run: source %s", expandedPath)
 		} else {
 			logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
 			logging.LogInfo("ℹ️  To use this %s, add these lines to your shell configuration:", strings.ToUpper(sdkType))
