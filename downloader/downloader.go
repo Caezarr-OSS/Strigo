@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strigo/logging"
@@ -53,10 +54,18 @@ func DownloadAndExtract(downloadURL, cacheDir, installPath string, sdkType, dist
 		return fmt.Errorf("failed to create installation directory: %w", err)
 	}
 
-	// Extract the archive
+	// Extract the archive based on its extension
 	logging.LogInfo("📂 Extracting SDK...")
-	if err := extractTarGz(cacheFile, installPath); err != nil {
-		return fmt.Errorf("extraction failed: %w", err)
+	if strings.HasSuffix(cacheFile, ".tar.gz") {
+		if err := extractTarGz(cacheFile, installPath); err != nil {
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+	} else if strings.HasSuffix(cacheFile, ".tar.xz") {
+		if err := extractTarXz(cacheFile, installPath); err != nil {
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+	} else {
+		return fmt.Errorf("unsupported archive format: %s", filepath.Ext(cacheFile))
 	}
 
 	// Après l'extraction réussie
@@ -165,6 +174,89 @@ type CertConfig struct {
 	Enabled           bool
 	JDKSecurityPath   string
 	SystemCacertsPath string
+}
+
+// extractTarXz extracts a .tar.xz file to a destination directory using xz command
+func extractTarXz(tarPath, destPath string) error {
+	if !filepath.IsAbs(destPath) {
+		return fmt.Errorf("destination path must be absolute")
+	}
+
+	// Check if xz is available
+	if _, err := exec.LookPath("xz"); err != nil {
+		return fmt.Errorf("xz command not found, please install xz-utils")
+	}
+
+	// Create a temporary directory for the extracted .tar file
+	tmpDir, err := os.MkdirTemp("", "strigo-xz-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Extract .xz to get .tar file
+	tarFile := filepath.Join(tmpDir, "temp.tar")
+	cmd := exec.Command("xz", "-d", "-c", tarPath)
+	tarOut, err := os.Create(tarFile)
+	if err != nil {
+		return fmt.Errorf("failed to create temporary tar file: %w", err)
+	}
+	cmd.Stdout = tarOut
+	if err := cmd.Run(); err != nil {
+		tarOut.Close()
+		return fmt.Errorf("failed to extract xz file: %w", err)
+	}
+	tarOut.Close()
+
+	// Open and extract the tar file
+	file, err := os.Open(tarFile)
+	if err != nil {
+		return fmt.Errorf("failed to open temporary tar file: %w", err)
+	}
+	defer file.Close()
+
+	tr := tar.NewReader(file)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// Get the target path
+		target := filepath.Join(destPath, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destPath)) {
+				return fmt.Errorf("invalid tar path: %s", header.Name)
+			}
+
+			dir := filepath.Dir(target)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return err
+			}
+
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			if _, err := io.Copy(f, tr); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func setupJDKCertificates(installPath string, config CertConfig) error {
