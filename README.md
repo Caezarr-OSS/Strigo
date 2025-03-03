@@ -12,7 +12,6 @@ Strigo is a lightweight and efficient CLI tool designed for managing JDKs and SD
 - [Environment Variables](#environment-variables)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
-- [Security](#security)
 - [Architecture](#architecture)
 
 ## Installation
