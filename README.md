@@ -1,6 +1,6 @@
 # Strigo - SDK & JDK Version Manager
 
-Strigo is a lightweight and efficient CLI tool designed for managing JDKs and SDKs locally. It allows users to easily install, remove, and switch between multiple versions of Java Development Kits (JDKs) and other SDKs.
+Strigo is a lightweight and efficient CLI tool designed for managing SDKs locally. It allows users to easily install, remove, and switch between multiple versions of Java Development Kits (JDKs) and other SDKs.
 
 ![Strigo Logo](assets/img/strigo.jpeg)
 
