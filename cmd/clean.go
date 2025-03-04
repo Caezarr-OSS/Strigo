@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strigo/config"
 	"strigo/logging"
 	"strings"
 
@@ -28,9 +27,8 @@ func clean(cmd *cobra.Command, args []string) {
 }
 
 func handleClean() error {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	if cfg == nil {
+		return fmt.Errorf("configuration is not loaded")
 	}
 
 	// Obtenir JAVA_HOME actuel
@@ -64,8 +62,9 @@ func handleClean() error {
 
 	sdkType, distribution := parts[0], parts[1]
 
-	// Vérifier si le type de SDK existe
-	if _, exists := cfg.SDKTypes[sdkType]; !exists {
+	// Vérifier si le type de SDK existe (accepter singulier ou pluriel)
+	baseType := strings.TrimSuffix(sdkType, "s") // Enlever le 's' final si présent
+	if _, exists := cfg.SDKTypes[baseType]; !exists {
 		logging.LogInfo("❌ Invalid SDK type: %s", sdkType)
 		return cleanJavaHome()
 	}

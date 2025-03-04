@@ -28,14 +28,6 @@ type SDKType struct {
 	InstallDir string `toml:"install_dir"`
 }
 
-// Config represents the main configuration structure
-type Config struct {
-	General         GeneralConfig            `toml:"general"`
-	Registries      map[string]Registry      `toml:"registries"`
-	SDKTypes        map[string]SDKType       `toml:"sdk_type"`
-	SDKRepositories map[string]SDKRepository `toml:"sdk_repositories"`
-}
-
 // Registry represents a remote registry configuration
 type Registry struct {
 	Type   string `toml:"type"`
@@ -48,6 +40,14 @@ type SDKRepository struct {
 	Registry   string `toml:"registry"`
 	Repository string `toml:"repository"`
 	Path       string `toml:"path"`
+}
+
+// Config represents the main configuration structure
+type Config struct {
+	General         GeneralConfig            `toml:"general"`
+	Registries      map[string]Registry      `toml:"registries"`
+	SDKTypes        map[string]SDKType       `toml:"sdk_types"`
+	SDKRepositories map[string]SDKRepository `toml:"sdk_repositories"`
 }
 
 // ExpandTilde expands ~ to the user's home directory
@@ -154,12 +154,12 @@ func (c *Config) Validate() error {
 		if err != nil {
 			return fmt.Errorf("failed to expand shell_config_path: %w", err)
 		}
-		
+
 		// Check if the file exists
 		if _, err := os.Stat(expandedPath); err != nil {
 			return fmt.Errorf("shell configuration file not found: %s", expandedPath)
 		}
-		
+
 		c.General.ShellConfigPath = expandedPath
 	}
 

@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strigo/config"
-	"strigo/logging"
 	"strigo/repository"
 
 	"github.com/spf13/cobra"
@@ -48,26 +47,21 @@ func list(cmd *cobra.Command, args []string) {
 }
 
 func handleList(args []string) error {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	output := ListOutput{}
+	output := &CommandOutput{}
 
 	switch len(args) {
 	case 0:
-		return listSDKTypes(cfg, &output)
+		return listSDKTypes(cfg, output)
 	case 1:
-		return listDistributions(cfg, args[0], &output)
+		return listDistributions(cfg, args[0], output)
 	case 2:
-		return listVersions(cfg, args[0], args[1], &output)
+		return listVersions(cfg, args[0], args[1], output)
 	default:
 		return fmt.Errorf("too many arguments")
 	}
 }
 
-func listSDKTypes(cfg *config.Config, output *ListOutput) error {
+func listSDKTypes(cfg *config.Config, output *CommandOutput) error {
 	var types []string
 	for sdkType := range cfg.SDKTypes {
 		types = append(types, sdkType)
@@ -76,25 +70,25 @@ func listSDKTypes(cfg *config.Config, output *ListOutput) error {
 	output.Types = types
 
 	if jsonOutput {
-		return outputJSON(output)
+		return OutputJSON(output)
 	}
 
 	if len(types) == 0 {
-		logging.LogInfo("No SDKs installed")
+		fmt.Printf("No SDKs installed\n")
 		return nil
 	}
 
-	logging.LogInfo("Available SDK types:")
-	logging.LogInfo("─────────────────────")
+	fmt.Printf("Available SDK types:\n")
+	fmt.Printf("─────────────────────\n")
 	for _, sdkType := range types {
-		logging.LogInfo("✅ %s", sdkType)
+		fmt.Printf("✅ %s\n", sdkType)
 	}
-	logging.LogInfo("")
+	fmt.Printf("\n")
 
 	return nil
 }
 
-func listDistributions(cfg *config.Config, sdkType string, output *ListOutput) error {
+func listDistributions(cfg *config.Config, sdkType string, output *CommandOutput) error {
 	// Vérifier si le type de SDK existe
 	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
 	if !exists {
@@ -108,9 +102,9 @@ func listDistributions(cfg *config.Config, sdkType string, output *ListOutput) e
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOutput {
-				return outputJSON(output)
+				return OutputJSON(output)
 			}
-			logging.LogInfo("No distributions installed for %s", sdkType)
+			fmt.Printf("No distributions installed for %s\n", sdkType)
 			return nil
 		}
 		return fmt.Errorf("failed to read distributions directory: %w", err)
@@ -125,22 +119,26 @@ func listDistributions(cfg *config.Config, sdkType string, output *ListOutput) e
 	sort.Strings(dists)
 	output.Distributions = dists
 
+	if jsonOutput {
+		return OutputJSON(output)
+	}
+
 	if len(dists) == 0 {
-		logging.LogInfo("No distributions installed for %s", sdkType)
+		fmt.Printf("No distributions installed for %s\n", sdkType)
 		return nil
 	}
 
-	logging.LogInfo("Installed %s distributions:", sdkType)
-	logging.LogInfo("─────────────────────────────")
+	fmt.Printf("Installed %s distributions:\n", sdkType)
+	fmt.Printf("─────────────────────────────\n")
 	for _, dist := range dists {
-		logging.LogInfo("✅ %s", dist)
+		fmt.Printf("✅ %s\n", dist)
 	}
-	logging.LogInfo("")
+	fmt.Printf("\n")
 
 	return nil
 }
 
-func listVersions(cfg *config.Config, sdkType, distribution string, output *ListOutput) error {
+func listVersions(cfg *config.Config, sdkType, distribution string, output *CommandOutput) error {
 	// Vérifier si le type de SDK existe
 	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
 	if !exists {
@@ -153,7 +151,10 @@ func listVersions(cfg *config.Config, sdkType, distribution string, output *List
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logging.LogInfo("No versions installed for %s %s", sdkType, distribution)
+			if jsonOutput {
+				return OutputJSON(output)
+			}
+			fmt.Printf("No versions installed for %s %s\n", sdkType, distribution)
 			return nil
 		}
 		return fmt.Errorf("failed to read versions directory: %w", err)
@@ -172,8 +173,12 @@ func listVersions(cfg *config.Config, sdkType, distribution string, output *List
 	})
 	output.Versions = versions
 
+	if jsonOutput {
+		return OutputJSON(output)
+	}
+
 	if len(versions) == 0 {
-		logging.LogInfo("No versions installed for %s %s", sdkType, distribution)
+		fmt.Printf("No versions installed for %s %s\n", sdkType, distribution)
 		return nil
 	}
 
@@ -193,8 +198,8 @@ func listVersions(cfg *config.Config, sdkType, distribution string, output *List
 	}
 	sort.Ints(majorVersions)
 
-	logging.LogInfo("Installed %s %s versions:", sdkType, distribution)
-	logging.LogInfo("─────────────────────────────────")
+	fmt.Printf("\nInstalled %s %s versions:\n", sdkType, distribution)
+	fmt.Println("─────────────────────────────────")
 
 	for _, majorNum := range majorVersions {
 		major := strconv.Itoa(majorNum)
@@ -205,11 +210,11 @@ func listVersions(cfg *config.Config, sdkType, distribution string, output *List
 			return repository.CompareVersions(versions[i], versions[j])
 		})
 
-		logging.LogInfo("-%s :", major)
+		fmt.Printf("-%s :\n", major)
 		for _, version := range versions {
-			logging.LogInfo("    ✅ %s", version)
+			fmt.Printf("    ✅ %s\n", version)
 		}
-		logging.LogInfo("")
+		fmt.Println()
 	}
 
 	return nil

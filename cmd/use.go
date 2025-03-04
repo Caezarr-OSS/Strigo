@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strigo/config"
 	"strigo/logging"
 	"strings"
 
@@ -137,12 +136,10 @@ func findRcFile() (string, error) {
 }
 
 func handleUnset(sdkType string) error {
-	// Load configuration
-	var err error
-	cfg, err = config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+	if cfg == nil {
+		return fmt.Errorf("configuration is not loaded")
 	}
+
 	if sdkType != "jdk" && sdkType != "node" {
 		return fmt.Errorf("unset is only supported for JDK and Node.js")
 	}
@@ -153,9 +150,13 @@ func handleUnset(sdkType string) error {
 	}
 
 	// Expand tilde if present
-	expandedPath, err := config.ExpandTilde(rcFile)
-	if err != nil {
-		return fmt.Errorf("failed to expand path %s: %w", rcFile, err)
+	expandedPath := rcFile
+	if strings.HasPrefix(rcFile, "~") {
+		home := os.Getenv("HOME")
+		if home == "" {
+			return fmt.Errorf("HOME environment variable not set")
+		}
+		expandedPath = filepath.Join(home, rcFile[1:])
 	}
 
 	// Lire le contenu actuel
@@ -198,96 +199,127 @@ func handleUnset(sdkType string) error {
 }
 
 func handleUse(sdkType, distribution, version string) error {
-	// Load configuration
-	var err error
-	cfg, err = config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+	if cfg == nil {
+		return fmt.Errorf("configuration is not loaded")
 	}
 
 	// Vérifier si le type de SDK existe
-	if _, exists := cfg.SDKTypes[sdkType]; !exists {
+	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
+	if !exists {
 		return fmt.Errorf("SDK type %s not found in configuration", sdkType)
 	}
 
 	// Construire le chemin d'installation
-	installPath, err := GetInstallPath(cfg, sdkType, distribution, version)
-	if err != nil {
-		return fmt.Errorf("failed to get installation path: %w", err)
-	}
+	installPath := filepath.Join(cfg.General.SDKInstallDir, sdkTypeConfig.InstallDir, distribution, version)
 
-	// Vérifier si la version est installée
+	// Vérifier si le SDK est installé
 	if _, err := os.Stat(installPath); os.IsNotExist(err) {
-		return fmt.Errorf("version %s is not installed. Please install it first with:\n  strigo install %s %s %s",
-			version, sdkType, distribution, version)
+		return fmt.Errorf("version %s %s %s is not installed", sdkType, distribution, version)
 	}
 
-	// Configurer les variables d'environnement
-	if sdkType == "jdk" || sdkType == "node" {
-		// Trouver le chemin du répertoire bin
-		binPath, err := getSDKBinPath(installPath, sdkType)
-		if err != nil {
-			return err
-		}
+	// Obtenir le chemin du binaire
+	sdkPath, err := getSDKBinPath(installPath, sdkType)
+	if err != nil {
+		return fmt.Errorf("failed to find SDK binary path: %w", err)
+	}
 
-		// Préparer les exports selon le type de SDK
-		var envVar string
+	// Créer le lien symbolique
+	linkPath := filepath.Join(cfg.General.SDKInstallDir, fmt.Sprintf("current-%s", sdkType))
+
+	// Supprimer le lien existant s'il existe
+	if _, err := os.Lstat(linkPath); err == nil {
+		if err := os.Remove(linkPath); err != nil {
+			return fmt.Errorf("failed to remove existing symbolic link: %w", err)
+		}
+	}
+
+	// Créer le nouveau lien
+	if err := os.Symlink(sdkPath, linkPath); err != nil {
+		return fmt.Errorf("failed to create symbolic link: %w", err)
+	}
+
+	logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
+
+	// Si --set-env est spécifié, configurer les variables d'environnement
+	if setEnvVar {
+		if err := configureEnvironment(sdkType, sdkPath); err != nil {
+			return fmt.Errorf("failed to configure environment: %w", err)
+		}
+	} else {
 		if sdkType == "jdk" {
-			envVar = "JAVA_HOME"
-		} else {
-			envVar = "NODE_HOME"
-		}
-
-		exports := fmt.Sprintf("export %s=%s\nexport PATH=$%s/bin:$PATH", envVar, binPath, envVar)
-
-		if setEnvVar {
-			rcFile, err := findRcFile()
-			if err != nil {
-				logging.LogError("❌ Could not find shell configuration file: %v", err)
-				logging.LogInfo("ℹ️  Please add these lines manually to your shell configuration:")
-				fmt.Println(exports)
-				return nil
-			}
-
-			// Expand tilde if present
-			expandedPath, err := config.ExpandTilde(rcFile)
-			if err != nil {
-				return fmt.Errorf("failed to expand path %s: %w", rcFile, err)
-			}
-
-			// Lire le contenu actuel
-			content, err := os.ReadFile(expandedPath)
-			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", expandedPath, err)
-			}
-
-			// Supprimer les anciennes configurations
-			lines := strings.Split(string(content), "\n")
-			var newLines []string
-			for _, line := range lines {
-				if !strings.Contains(line, envVar+"=") && !strings.Contains(line, "PATH=$"+envVar) {
-					newLines = append(newLines, line)
-				}
-			}
-
-			// Ajouter les nouvelles configurations avec un commentaire
-			newContent := strings.Join(newLines, "\n") + fmt.Sprintf("\n\n# Added by Strigo - %s configuration\n%s\n", strings.ToUpper(sdkType), exports)
-
-			// Écrire le fichier
-			if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
-				return fmt.Errorf("failed to update %s: %w", expandedPath, err)
-			}
-
-			logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
-			logging.LogInfo("📝 Added to %s:", expandedPath)
-			fmt.Println(exports)
-			logging.LogInfo("ℹ️  To apply these changes, run: source %s", expandedPath)
-		} else {
-			logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
-			logging.LogInfo("ℹ️  To use this %s, add these lines to your shell configuration:", strings.ToUpper(sdkType))
-			fmt.Println(exports)
+			logging.LogInfo("ℹ️  To use this JDK, set these environment variables:")
+			logging.LogInfo("   export JAVA_HOME=%s", sdkPath)
+			logging.LogInfo("   export PATH=$JAVA_HOME/bin:$PATH")
+			logging.LogInfo("")
+			logging.LogInfo("💡 Or use --set-env to set them automatically in your shell configuration")
+		} else if sdkType == "node" {
+			logging.LogInfo("ℹ️  To use this Node.js version, set these environment variables:")
+			logging.LogInfo("   export NODE_HOME=%s", sdkPath)
+			logging.LogInfo("   export PATH=$NODE_HOME/bin:$PATH")
+			logging.LogInfo("")
+			logging.LogInfo("💡 Or use --set-env to set them automatically in your shell configuration")
 		}
 	}
+
+	return nil
+}
+
+func configureEnvironment(sdkType, sdkPath string) error {
+	// Trouver le fichier RC approprié
+	rcFile, err := findRcFile()
+	if err != nil {
+		return err
+	}
+
+	// Expand tilde if present
+	expandedPath := rcFile
+	if strings.HasPrefix(rcFile, "~") {
+		home := os.Getenv("HOME")
+		if home == "" {
+			return fmt.Errorf("HOME environment variable not set")
+		}
+		expandedPath = filepath.Join(home, rcFile[1:])
+	}
+
+	// Lire le contenu actuel
+	content, err := os.ReadFile(expandedPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read rc file: %w", err)
+	}
+
+	// Préparer les nouvelles lignes
+	var envVar string
+	if sdkType == "jdk" {
+		envVar = "JAVA_HOME"
+	} else if sdkType == "node" {
+		envVar = "NODE_HOME"
+	}
+
+	newConfig := fmt.Sprintf("\n# Added by Strigo - %s configuration\nexport %s=%s\nexport PATH=$%s/bin:$PATH\n",
+		strings.ToUpper(sdkType), envVar, sdkPath, envVar)
+
+	// Supprimer l'ancienne configuration si elle existe
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.Contains(line, fmt.Sprintf("# Added by Strigo - %s configuration", strings.ToUpper(sdkType))) {
+			i += 2 // Skip next two lines
+			continue
+		}
+		newLines = append(newLines, line)
+	}
+
+	// Ajouter la nouvelle configuration
+	newContent := strings.Join(newLines, "\n") + newConfig
+
+	// Écrire le nouveau contenu
+	if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to update rc file: %w", err)
+	}
+
+	logging.LogInfo("✅ Successfully configured environment in %s", expandedPath)
+	logging.LogInfo("ℹ️  To apply these changes, run: source %s", expandedPath)
 
 	return nil
 }

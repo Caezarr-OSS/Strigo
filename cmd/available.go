@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strigo/config"
 	"strigo/logging"
 	"strigo/repository"
 	"strings"
@@ -30,6 +31,13 @@ Examples:
   strigo available jdk temurin     # List all Temurin JDK versions
   strigo available jdk temurin 11  # List Temurin JDK versions containing "11"`,
 	Args: func(cmd *cobra.Command, args []string) error {
+		// Charger la configuration avant la validation
+		var err error
+		cfg, err = config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
+		}
+
 		if len(args) > 3 {
 			return fmt.Errorf("too many arguments. Use 'strigo available --help' for usage")
 		}
@@ -64,18 +72,18 @@ Examples:
 			return fmt.Errorf("configuration is not loaded")
 		}
 
-		output := AvailableOutput{}
+		output := &AvailableOutput{}
 
 		// Si pas d'arguments, afficher les types de SDK disponibles
 		if len(args) == 0 {
-			return handleNoArgs(&output)
+			return handleNoArgs(output)
 		}
 
 		sdkType := args[0]
 
 		// Si seulement le type est fourni, afficher les distributions
 		if len(args) == 1 {
-			return handleTypeOnly(sdkType, &output)
+			return handleTypeOnly(sdkType, output)
 		}
 
 		distribution := args[1]
@@ -84,7 +92,7 @@ Examples:
 			versionFilter = args[2]
 		}
 
-		return handleFullCommand(sdkType, distribution, versionFilter, &output)
+		return handleFullCommand(sdkType, distribution, versionFilter, output)
 	},
 }
 
@@ -93,13 +101,12 @@ func getValidSDKTypes() []string {
 	if cfg == nil {
 		return []string{}
 	}
-	types := make(map[string]bool)
-	for _, repo := range cfg.SDKRepositories {
-		if repo.Type != "" {
-			types[repo.Type] = true
-		}
+	types := make([]string, 0, len(cfg.SDKTypes))
+	for sdkType := range cfg.SDKTypes {
+		types = append(types, sdkType)
 	}
-	return mapToSortedSlice(types)
+	sort.Strings(types)
+	return types
 }
 
 func getValidDistributions(sdkType string) []string {

@@ -26,3 +26,4 @@ go.work.sum
 
 strigo
 strigo.exe
+.commitlintrc.json

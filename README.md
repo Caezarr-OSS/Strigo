@@ -47,62 +47,83 @@ Download the appropriate binary for your system from the [releases page](https:/
 - **Environment Management**: Flexible handling of environment variables
 - **Cross-Platform**: Supports Linux and macOS (both amd64 and arm64)
 - **Shell Completion**: Built-in completion support for bash, zsh, fish, and powershell
+- **Software Bill of Materials**: Each release includes a SBOM in CycloneDX format for security and compliance
+
+## Security
+
+### Software Bill of Materials (SBOM)
+Each release includes a Software Bill of Materials (SBOM) in CycloneDX JSON format. The SBOM provides:
+- A comprehensive list of all dependencies
+- Exact versions of each component
+- Important for security audits and compliance
+- Available as `sbom.json` in each release
 
 ## Configuration
 
-The configuration file (`strigo.toml`) is organized into several sections:
+The configuration file (`strigo.toml`) contains several sections:
 
-- `[general]`: Basic settings including log level, installation directories, and shell configuration
-  - `log_level`: Logging verbosity ("debug", "info", "error")
-  - `sdk_install_dir`: Base directory for all SDK installations
-  - `cache_dir`: Directory for downloaded artifacts
-  - `log_path`: Log file location (empty for console output)
-  - `shell_config_path`: Shell RC file to modify for environment variables
-
-- `[registries]`: Defines where Strigo will look for SDKs
-  - Currently supports Nexus repositories
-  - `{repository}` in the URL is replaced with values from `[sdk_repositories]`
-
-- `[sdk_type]`: Defines supported SDK types and their installation directories
-  - Each SDK type needs a unique identifier and install directory
-  - Installation paths are relative to `sdk_install_dir`
-  - Example: JDKs will be installed in `sdk_install_dir/jdks`
-
-- `[sdk_repositories]`: Maps SDK distributions to their sources
-  - Links to a registry defined in `[registries]`
-  - Specifies repository name and path within that registry
-  - Must reference a type from `[sdk_type]`
-
-Here's a complete example:
+### General Configuration
 
 ```toml
 [general]
-log_level = "info"
-sdk_install_dir = "/home/user/.sdks"
-cache_dir = "/home/user/.cache/strigo"
-log_path = "/home/user/.logs/strigo"
-shell_config_path = "~/.bashrc"  # Shell configuration file path (e.g. ~/.bashrc, ~/.zshrc)
+log_level = "debug"                               # Log level (debug, info, warn, error)
+sdk_install_dir = "/home/debian/.sdks"            # Base directory for SDK installations
+cache_dir = "/home/debian/.cache/strigo"          # Cache directory for downloads
+keep_cache = false                                # Keep downloaded archives
+```
 
-[registries]
-nexus = { 
-    type = "nexus", 
-    api_url = "http://localhost:8081/service/rest/v1/assets?repository={repository}"
-}
+### SDK Types
 
-[sdk_type]
+Define the supported SDK types and their installation directories:
+
+```toml
+[sdk_types]
 jdk = {
     type = "jdk",
-    install_dir = "jdks"     # JDKs will be installed in sdk_install_dir/jdks
+    install_dir = "jdks"    # All JDK distributions will be installed under this directory
 }
 node = {
     type = "node",
-    install_dir = "nodes"    # Node.js will be installed in sdk_install_dir/nodes
+    install_dir = "nodes"   # All Node.js versions will be installed under this directory
 }
+```
 
+### Registries
+
+Configure the artifact repositories:
+
+```toml
+[registries]
+nexus = { 
+    type = "nexus",
+    api_url = "http://nexus-server:8081/service/rest/v1/assets?repository={repository}"
+}
+```
+
+### SDK Repositories
+
+Map SDK distributions to their repository locations:
+
+```toml
 [sdk_repositories]
-temurin = { registry = "nexus", repository = "raw", path = "jdk/adoptium/temurin" }
-corretto = { registry = "nexus", repository = "raw", path = "jdk/amazon/corretto" }
-zulu = { registry = "nexus", repository = "raw", path = "jdk/azul/zulu" }
+temurin = {                         # Temurin JDK distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "jdk",
+    path = "jdk/adoptium/temurin"
+}
+corretto = {                        # Amazon Corretto JDK distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "jdk",
+    path = "jdk/amazon/corretto"
+}
+node = {                            # Node.js distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "node",
+    path = "node"
+}
 ```
 
 After installation, your directory structure will look like this:
@@ -135,6 +156,7 @@ After installation, your directory structure will look like this:
   - `type`: SDK type (jdk, node)
   - `version`: Version to use
   - `--set-env`: Automatically configure environment variables
+  - `--unset`: Remove environment variables configuration (e.g., `strigo use jdk --unset`)
   - Example: `strigo use jdk 17.0.8 --set-env`
 
 - `strigo list`: List installed SDK versions
@@ -162,12 +184,34 @@ After installation, your directory structure will look like this:
   - Example: `strigo --config /custom/path/strigo.toml install jdk 17.0.8`
   - Use this when you want to use a different configuration file than the default
 
+- `--json`: Output command results in JSON format
+  - Example: `strigo list jdk --json`
+  - Useful for scripting and automation
+  - Available for all commands that output data
+
+- `--json-logs`: Enable JSON-formatted logging
+  - Example: `strigo install jdk 17.0.8 --json-logs`
+  - Useful for log parsing and monitoring
+  - Includes timestamp, level, and structured data
+
 - `--help, -h`: Show help information for any command
   - Example: `strigo install --help`
 
 ## Environment Variables
 
 Strigo manages environment variables for different SDK types:
+
+### Managing Environment Variables
+- Use `--set-env` with the `use` command to add environment variables to your shell configuration:
+  ```bash
+  strigo use jdk temurin 17.0.8 --set-env
+  ```
+
+- Use `--unset` to remove environment variables from your shell configuration:
+  ```bash
+  strigo use jdk --unset  # Removes JAVA_HOME configuration
+  strigo use node --unset # Removes NODE_HOME configuration
+  ```
 
 ### Java Environment
 - `JAVA_HOME`: Points to the selected JDK installation
@@ -239,30 +283,17 @@ strigo/
 3. Update documentation
 4. Submit a pull request
 
-
 ## Architecture
 
-### Component Diagram
-```
-+-------------+     +--------------+     +----------------+
-|    CLI      |---->| Config       |---->| Repository     |
-+-------------+     +--------------+     +----------------+
-       |                  |                      |
-       v                  v                      v
-+-------------+     +--------------+     +----------------+
-| Commands    |     | Downloader   |     | Installation   |
-+-------------+     +--------------+     +----------------+
-```
+### Logging System
 
-### Data Flow
-1. Command parsing
-2. Configuration loading
-3. Repository interaction
-4. Download management
-5. Installation handling
-6. Environment configuration
+Strigo supports a **multi-level logging system**, configurable in `strigo.toml`. The available log levels are:
 
----
+- `debug`: Logs everything, including detailed debugging information.
+- `info`: Logs general execution details and warnings.
+- `error`: Logs only critical failures.
+
+Logs are stored in the directory specified in `log_path` under `strigo.toml`.
 
 ## Nexus Repository Structure
 
@@ -299,8 +330,6 @@ The Nexus repository must follow this directory structure:
     └── v22
         └── node-v22.13.1-linux-x64.tar.xz
 ```
-
----
 
 ## Command Usage
 
@@ -339,14 +368,6 @@ strigo available jdk corretto
     ✅ amazon-corretto-8.442.06.1-linux-x64.tar.gz
 ```
 
-### Checking Available Corretto JDKs
-
-#### Command:
-```sh
-strigo available jdk corretto
-```
-
-
 ### Checking specific version (temurin 11)
 
 #### Command:
@@ -360,18 +381,3 @@ strigo available jdk temurin 11
   - 11:
     ✅ OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz
     ✅ OpenJDK11U-jdk_x64_linux_hotspot_11.0.26_4.tar.gz
-```
-
-
-
----
-
-## Logging System
-
-Strigo supports a **multi-level logging system**, configurable in `strigo.toml`. The available log levels are:
-
-- `debug`: Logs everything, including detailed debugging information.
-- `info`: Logs general execution details and warnings.
-- `error`: Logs only critical failures.
-
-Logs are stored in the directory specified in `log_path` under `strigo.toml`.
