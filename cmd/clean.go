@@ -64,8 +64,9 @@ func handleClean() error {
 
 	sdkType, distribution := parts[0], parts[1]
 
-	// Vérifier si le type de SDK existe
-	if _, exists := cfg.SDKTypes[sdkType]; !exists {
+	// Vérifier si le type de SDK existe (accepter singulier ou pluriel)
+	baseType := strings.TrimSuffix(sdkType, "s") // Enlever le 's' final si présent
+	if _, exists := cfg.SDKTypes[baseType]; !exists {
 		logging.LogInfo("❌ Invalid SDK type: %s", sdkType)
 		return cleanJavaHome()
 	}

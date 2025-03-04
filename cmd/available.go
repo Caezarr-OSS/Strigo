@@ -93,13 +93,12 @@ func getValidSDKTypes() []string {
 	if cfg == nil {
 		return []string{}
 	}
-	types := make(map[string]bool)
-	for _, repo := range cfg.SDKRepositories {
-		if repo.Type != "" {
-			types[repo.Type] = true
-		}
+	types := make([]string, 0, len(cfg.SDKTypes))
+	for sdkType := range cfg.SDKTypes {
+		types = append(types, sdkType)
 	}
-	return mapToSortedSlice(types)
+	sort.Strings(types)
+	return types
 }
 
 func getValidDistributions(sdkType string) []string {
