@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - '*'  # Accepte n'importe quel tag
+    branches:
+      - main  # S'assure que le tag vient de main
 
 permissions:
   contents: write # Nécessaire pour créer des releases
@@ -29,14 +31,6 @@ jobs:
           version: '3.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate Changelog
-        id: changelog
-        uses: conventional-changelog/releaser-tools@v1.0.0
-        with:
-          preset: 'conventionalcommits'
-          infile: 'CHANGELOG.md'
-          outfile: 'CHANGELOG.md'
-
       - name: Build Release Binaries
         run: task release
 
@@ -49,11 +43,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          body_path: CHANGELOG.md
           files: |
             bin/*.tar.gz
             bin/checksums.txt
             bin/sbom.json
-            CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
