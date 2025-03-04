@@ -29,14 +29,31 @@ jobs:
           version: '3.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate Changelog
+        id: changelog
+        uses: conventional-changelog/releaser-tools@v1.0.0
+        with:
+          preset: 'conventionalcommits'
+          infile: 'CHANGELOG.md'
+          outfile: 'CHANGELOG.md'
+
       - name: Build Release Binaries
         run: task release
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          output: bin/sbom.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          body_path: CHANGELOG.md
           files: |
             bin/*.tar.gz
             bin/checksums.txt
+            bin/sbom.json
+            CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

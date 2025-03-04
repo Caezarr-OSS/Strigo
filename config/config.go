@@ -154,12 +154,12 @@ func (c *Config) Validate() error {
 		if err != nil {
 			return fmt.Errorf("failed to expand shell_config_path: %w", err)
 		}
-		
+
 		// Check if the file exists
 		if _, err := os.Stat(expandedPath); err != nil {
 			return fmt.Errorf("shell configuration file not found: %s", expandedPath)
 		}
-		
+
 		c.General.ShellConfigPath = expandedPath
 	}
 

@@ -47,6 +47,16 @@ Download the appropriate binary for your system from the [releases page](https:/
 - **Environment Management**: Flexible handling of environment variables
 - **Cross-Platform**: Supports Linux and macOS (both amd64 and arm64)
 - **Shell Completion**: Built-in completion support for bash, zsh, fish, and powershell
+- **Software Bill of Materials**: Each release includes a SBOM in CycloneDX format for security and compliance
+
+## Security
+
+### Software Bill of Materials (SBOM)
+Each release includes a Software Bill of Materials (SBOM) in CycloneDX JSON format. The SBOM provides:
+- A comprehensive list of all dependencies
+- Exact versions of each component
+- Important for security audits and compliance
+- Available as `sbom.json` in each release
 
 ## Configuration
 
@@ -239,30 +249,160 @@ strigo/
 3. Update documentation
 4. Submit a pull request
 
-
 ## Architecture
 
-### Component Diagram
+### Package Structure
 ```
-+-------------+     +--------------+     +----------------+
-|    CLI      |---->| Config       |---->| Repository     |
-+-------------+     +--------------+     +----------------+
-       |                  |                      |
-       v                  v                      v
-+-------------+     +--------------+     +----------------+
-| Commands    |     | Downloader   |     | Installation   |
-+-------------+     +--------------+     +----------------+
+strigo/
+├── cmd/                    # CLI commands implementation
+│   ├── install.go         # Installation command
+│   ├── list.go           # List command
+│   └── root.go           # Root command and common flags
+├── downloader/            # Download and extraction management
+│   ├── core/             # Core types and utilities
+│   │   ├── disk.go       # Disk space management
+│   │   ├── types.go      # Common type definitions
+│   │   └── validation.go # Input validation
+│   ├── network/          # Network operations
+│   │   └── client.go     # HTTP client implementation
+│   ├── cache/            # Cache management
+│   │   └── manager.go    # Cache operations
+│   ├── jdk/              # JDK-specific operations
+│   │   └── certificates.go # Certificate management
+│   ├── extract.go        # Archive extraction
+│   └── manager.go        # Download orchestration
+├── logging/              # Logging utilities
+│   └── logger.go        # Logger implementation
+└── config/              # Configuration management
+    └── config.go       # TOML configuration
 ```
 
-### Data Flow
-1. Command parsing
-2. Configuration loading
-3. Repository interaction
-4. Download management
-5. Installation handling
-6. Environment configuration
+### Key Components
 
----
+#### Core Package (`core/`)
+- Contains fundamental types and utilities
+- Manages disk operations and validation
+- Defines common types like `DownloadOptions` and `CertConfig`
+
+#### Network Package (`network/`)
+- Handles HTTP operations
+- Implements download functionality
+- Manages connection retries and timeouts
+
+#### Cache Package (`cache/`)
+- Manages downloaded artifacts
+- Implements cache invalidation
+- Handles cache directory structure
+
+#### JDK Package (`jdk/`)
+- JDK-specific operations
+- Certificate configuration
+- Environment setup
+
+### Logging System
+
+Strigo implements a comprehensive logging system with multiple levels and formats:
+
+#### Log Levels
+- `DEBUG`: Detailed information for debugging
+- `INFO`: General operational information
+- `ERROR`: Error conditions
+
+#### Log Formats
+
+##### 1. Text Format (Default)
+Standard text format with timestamps and emojis for better readability:
+```
+2025-03-04T20:49:49+01:00 [DEBUG] 📦 Starting extraction of OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz
+2025-03-04T20:49:50+01:00 [INFO] ✅ Extraction completed: 543 files, total size: 195MB
+```
+
+##### 2. JSON Format
+Structured JSON format for machine processing and integration with logging tools:
+```json
+{
+  "timestamp": "2025-03-04T20:49:49+01:00",
+  "level": "DEBUG",
+  "message": "Starting extraction",
+  "component": "extractor",
+  "data": {
+    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
+    "total_files": 543,
+    "total_size": 204472320
+  }
+}
+```
+
+To enable JSON logging, update your configuration:
+```toml
+[general]
+log_format = "json"  # "text" or "json"
+log_level = "debug"
+log_path = "/path/to/strigo.log"
+```
+
+#### Log Categories and Examples
+
+1. **Download Operations**
+```json
+{
+  "timestamp": "2025-03-04T20:49:48+01:00",
+  "level": "INFO",
+  "message": "Downloading JDK",
+  "component": "downloader",
+  "data": {
+    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
+    "bytes_written": 52428800,
+    "total_size": 115343360,
+    "progress": 45
+  }
+}
+```
+
+2. **Extraction Process**
+```json
+{
+  "timestamp": "2025-03-04T20:49:49+01:00",
+  "level": "DEBUG",
+  "message": "Extraction progress",
+  "component": "extractor",
+  "data": {
+    "file_name": "bin/java",
+    "file_size": 8234,
+    "total_files": 543,
+    "total_size": 204472320
+  }
+}
+```
+
+3. **Cache Operations**
+```json
+{
+  "timestamp": "2025-03-04T20:49:47+01:00",
+  "level": "INFO",
+  "message": "Cache hit",
+  "component": "cache",
+  "data": {
+    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
+    "file_size": 115343360
+  }
+}
+```
+
+#### Structured Data Fields
+Les logs JSON incluent des champs structurés pour faciliter l'analyse :
+
+- `timestamp`: Date et heure au format RFC3339
+- `level`: Niveau de log (DEBUG, INFO, ERROR)
+- `message`: Message principal
+- `component`: Composant émetteur (downloader, extractor, cache, etc.)
+- `data`: Données additionnelles structurées
+  - `file_name`: Nom du fichier traité
+  - `file_size`: Taille du fichier en octets
+  - `bytes_written`: Octets écrits pour les téléchargements
+  - `total_size`: Taille totale en octets
+  - `total_files`: Nombre total de fichiers
+  - `progress`: Progression en pourcentage
 
 ## Nexus Repository Structure
 
@@ -299,8 +439,6 @@ The Nexus repository must follow this directory structure:
     └── v22
         └── node-v22.13.1-linux-x64.tar.xz
 ```
-
----
 
 ## Command Usage
 
