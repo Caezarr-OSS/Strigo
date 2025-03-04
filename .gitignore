@@ -23,7 +23,8 @@ go.work.sum
 
 # env file
 .env
-
+strigo.toml
+strigo-base.toml
 strigo
 strigo.exe
 .commitlintrc.json

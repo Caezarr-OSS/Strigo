@@ -3,25 +3,19 @@ name: Release
 on:
   push:
     tags:
-      - '*'  # Accept any tag
-  pull_request:
-    branches:
-      - main  # Test release process on PRs to main
-    types: [labeled]
+      - '[0-9]+.[0-9]+.[0-9]+*'  # Match semantic versions without 'v' prefix
 
 permissions:
   contents: write # Required for creating releases
 
 jobs:
   release:
-    # Only run if it's a tag push or if PR is labeled with 'test-release'
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.label.name == 'test-release')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Important for GoReleaser
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -47,14 +41,11 @@ jobs:
         run: task release
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          format: cyclonedx-json
-          output: bin/sbom.json
+        run: |
+          go install github.com/anchore/syft/cmd/syft@latest
+          syft . -o cyclonedx-json > bin/sbom.json
 
-      # For actual releases (tag pushes)
       - name: Create GitHub Release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v1
         with:
           body_path: CHANGELOG.md
@@ -65,25 +56,3 @@ jobs:
             CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # For testing releases (PRs with test-release label)
-      - name: Test Release Process
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "🔍 Testing release process..."
-          echo "✓ Changelog generated"
-          echo "✓ Binaries built"
-          echo "✓ SBOM generated"
-          echo "✓ Release assets prepared:"
-          ls -l bin/
-          echo "✓ Release process test completed successfully"
-          
-      - name: Upload Test Artifacts
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v3
-        with:
-          name: release-test-artifacts
-          path: |
-            bin/
-            CHANGELOG.md
-          retention-days: 5
