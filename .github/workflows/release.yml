@@ -31,6 +31,14 @@ jobs:
           version: '3.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install git-chglog
+        run: |
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+
+      - name: Generate Changelog
+        run: |
+          git-chglog -o CHANGELOG.md
+
       - name: Build Release Binaries
         run: task release
 
@@ -43,9 +51,11 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          body_path: CHANGELOG.md
           files: |
             bin/*.tar.gz
             bin/checksums.txt
             bin/sbom.json
+            CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
