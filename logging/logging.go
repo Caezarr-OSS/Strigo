@@ -3,6 +3,7 @@ package logging
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -19,35 +20,42 @@ const (
 	ErrorLevel = "error"
 )
 
+// LogEntry représente une entrée de log au format JSON
+type LogEntry struct {
+	Timestamp string      `json:"timestamp"`
+	Level     string      `json:"level"`
+	Message   string      `json:"message"`
+	Component string      `json:"component,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+}
+
 var (
 	logFile   *os.File
 	logLevel  string
 	logger    *log.Logger
-	preLogger *bytes.Buffer = new(bytes.Buffer) // Buffer temporaire pour les logs avant InitLogger
+	preLogger *bytes.Buffer = new(bytes.Buffer)
+	useJSON   bool // Indique si on utilise le format JSON
 )
 
-func InitLogger(logPath string, level string) error {
+func InitLogger(logPath string, level string, jsonFormat bool) error {
 	logLevel = level
+	useJSON = jsonFormat
 
 	// Préparer la destination des logs
 	var writers []io.Writer
-	writers = append(writers, os.Stdout) // Toujours stdout
+	writers = append(writers, os.Stdout)
 
 	if logPath != "" {
-		// Vérifier si `logPath` est un dossier
 		info, err := os.Stat(logPath)
 		if err == nil && info.IsDir() {
-			// 📌 `logPath` est un dossier, créer un fichier dynamique dedans
 			logPath = filepath.Join(logPath, "strigo_"+time.Now().Format("20060102_150405")+".log")
 		}
 
-		// Assurer que le dossier parent existe
 		logDir := filepath.Dir(logPath)
 		if err := os.MkdirAll(logDir, os.ModePerm); err != nil {
 			return fmt.Errorf("failed to create log directory %s: %w", logDir, err)
 		}
 
-		// 📂 Ouvrir le fichier log
 		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return fmt.Errorf("failed to open log file %s: %w", logPath, err)
@@ -55,103 +63,140 @@ func InitLogger(logPath string, level string) error {
 		writers = append(writers, logFile)
 	}
 
-	// Créer le logger avec tous les writers
 	multiWriter := io.MultiWriter(writers...)
-	logger = log.New(multiWriter, "", log.Ldate|log.Ltime)
+	logger = log.New(multiWriter, "", 0) // Pas de préfixe car on gère nous-mêmes le format
 
-	// ✅ 📌 **Correction : éviter l'affichage en double**
 	if preLogger != nil {
 		scanner := bufio.NewScanner(preLogger)
 		for scanner.Scan() {
 			line := scanner.Text()
-
-			// 🔥 Filtrer les logs avant affichage
 			if shouldLog(line) {
 				if logFile != nil {
-					logger.Println(line) // ✅ **Écrire seulement dans le fichier**
+					logger.Println(line)
 				} else {
-					fmt.Println(line) // ✅ **Sinon, afficher une seule fois**
+					fmt.Println(line)
 				}
 			}
 		}
-		preLogger = nil // 🚀 On vide `preLogger` après traitement
+		preLogger = nil
 	}
 
 	LogDebug("[INFO] Logger initialized successfully.")
 	return nil
 }
 
-// **shouldLog : Filtre les logs en fonction du `logLevel`**
 func shouldLog(entry string) bool {
 	if logLevel == DebugLevel {
-		return true // Tout log est affiché en mode debug
+		return true
 	} else if logLevel == InfoLevel {
-		return !strings.HasPrefix(entry, "[DEBUG]") // Ignore les logs DEBUG
+		return !strings.HasPrefix(entry, "[DEBUG]")
 	} else {
-		return strings.HasPrefix(entry, "[ERROR]") // En mode error, ne log que les erreurs
-	}
-}
-func PreLog(level string, format string, args ...interface{}) {
-	if preLogger == nil {
-		preLogger = new(bytes.Buffer) // S'assurer que le buffer existe
-	}
-
-	// 🔥 Filtrer selon le niveau de log configuré
-	if (logLevel == InfoLevel && level == DebugLevel) || (logLevel == ErrorLevel && level != ErrorLevel) {
-		return // ❌ Ignore DEBUG en INFO et tout sauf ERROR en ERROR
-	}
-
-	// ✅ Évite l'affichage brut du fichier TOML en filtrant le contenu
-	logEntry := fmt.Sprintf("[%s] %s\n", level, fmt.Sprintf(format, args...))
-	if !strings.HasPrefix(logEntry, "[DEBUG] 📜 Raw file content") {
-		preLogger.WriteString(logEntry) // ✅ Ajout au buffer uniquement si pertinent
+		return strings.HasPrefix(entry, "[ERROR]")
 	}
 }
 
-// **LogError : Logue un message d'erreur**
-func LogError(format string, v ...interface{}) {
-	message := fmt.Sprintf("[ERROR] "+format, v...)
-	if logger != nil {
-		logger.Println(message)
+func writeLog(level, format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	
+	if useJSON {
+		entry := LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Level:     level,
+			Message:   message,
+		}
+		
+		if jsonData, err := json.Marshal(entry); err == nil {
+			if logger != nil {
+				logger.Println(string(jsonData))
+			} else {
+				PreLog(level, string(jsonData))
+			}
+		}
 	} else {
-		PreLog("ERROR", format, v...)
-	}
-}
-
-// **LogInfo : Logue un message d'information**
-func LogInfo(format string, v ...interface{}) {
-	message := fmt.Sprintf("[INFO] "+format, v...)
-	if logger != nil {
-		logger.Println(message)
-	} else {
-		PreLog("INFO", format, v...)
-	}
-}
-
-// **LogDebug : Logue un message de debug**
-func LogDebug(format string, v ...interface{}) {
-	if logLevel == DebugLevel {
-		message := fmt.Sprintf("[DEBUG] "+format, v...)
+		formattedMessage := fmt.Sprintf("[%s] %s", level, message)
 		if logger != nil {
-			logger.Println(message)
+			logger.Println(formattedMessage)
 		} else {
-			PreLog("DEBUG", format, v...)
+			PreLog(level, message)
 		}
 	}
 }
 
-// **LogOutput : Affiche un message en console sans préfixe (ne passe pas par logger)**
-func LogOutput(format string, args ...interface{}) {
-	message := fmt.Sprintf(format, args...)
-	fmt.Println(message)
+func LogError(format string, v ...interface{}) {
+	writeLog("ERROR", format, v...)
+}
 
-	// Si le fichier de log est actif, écrire dedans aussi
-	if logFile != nil {
-		logFile.WriteString(message + "\n")
+func LogInfo(format string, v ...interface{}) {
+	writeLog("INFO", format, v...)
+}
+
+func LogDebug(format string, v ...interface{}) {
+	if logLevel == DebugLevel {
+		writeLog("DEBUG", format, v...)
 	}
 }
 
-// **SetPreLogLevel : Définit le niveau de log avant `InitLogger()`**
+// LogOutputWithData affiche un message avec des données structurées optionnelles
+func LogOutputWithData(format string, data interface{}, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	
+	if useJSON {
+		entry := LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Level:     "OUTPUT",
+			Message:   message,
+		}
+		if data != nil {
+			entry.Data = data
+		}
+		
+		if jsonData, err := json.Marshal(entry); err == nil {
+			fmt.Println(string(jsonData))
+			if logFile != nil {
+				logFile.WriteString(string(jsonData) + "\n")
+			}
+		}
+	} else {
+		fmt.Println(message)
+		if logFile != nil {
+			logFile.WriteString(message + "\n")
+		}
+	}
+}
+
+// LogOutput est maintenant un wrapper autour de LogOutputWithData sans données
+func LogOutput(format string, args ...interface{}) {
+	LogOutputWithData(format, nil, args...)
+}
+
+func PreLog(level string, format string, args ...interface{}) {
+	if preLogger == nil {
+		preLogger = new(bytes.Buffer)
+	}
+
+	if (logLevel == InfoLevel && level == DebugLevel) || (logLevel == ErrorLevel && level != ErrorLevel) {
+		return
+	}
+
+	var logEntry string
+	if useJSON {
+		entry := LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Level:     level,
+			Message:   fmt.Sprintf(format, args...),
+		}
+		if jsonData, err := json.Marshal(entry); err == nil {
+			logEntry = string(jsonData) + "\n"
+		}
+	} else {
+		logEntry = fmt.Sprintf("[%s] %s\n", level, fmt.Sprintf(format, args...))
+	}
+
+	if !strings.HasPrefix(logEntry, "[DEBUG] 📜 Raw file content") {
+		preLogger.WriteString(logEntry)
+	}
+}
+
 func SetPreLogLevel(level string) {
 	logLevel = level
 }

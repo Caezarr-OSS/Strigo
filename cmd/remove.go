@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strigo/config"
 	"strigo/logging"
 
 	"github.com/spf13/cobra"
@@ -44,9 +43,8 @@ func remove(cmd *cobra.Command, args []string) {
 }
 
 func handleRemove(sdkType, distribution, version string) error {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	if cfg == nil {
+		return fmt.Errorf("configuration is not loaded")
 	}
 
 	// Vérifier si le type de SDK existe

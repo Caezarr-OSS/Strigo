@@ -9,9 +9,6 @@ import (
 	"strigo/logging"
 )
 
-// Variable globale pour le flag JSON
-var jsonOutput bool
-
 // ListOutput structure pour la sortie JSON des commandes list et available
 type ListOutput struct {
 	Types         []string `json:"types,omitempty"`

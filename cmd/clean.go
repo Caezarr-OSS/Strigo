@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strigo/config"
 	"strigo/logging"
 	"strings"
 
@@ -28,9 +27,8 @@ func clean(cmd *cobra.Command, args []string) {
 }
 
 func handleClean() error {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	if cfg == nil {
+		return fmt.Errorf("configuration is not loaded")
 	}
 
 	// Obtenir JAVA_HOME actuel

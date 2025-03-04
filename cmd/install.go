@@ -61,11 +61,6 @@ func install(cmd *cobra.Command, args []string) {
 }
 
 func handleInstall(sdkType, distribution, version string) error {
-	if cfg == nil {
-		logging.LogError("❌ Configuration is not loaded")
-		return nil
-	}
-
 	logging.LogDebug("🔧 Starting installation of %s %s version %s", sdkType, distribution, version)
 
 	// Check if the SDK type exists

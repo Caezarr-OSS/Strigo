@@ -60,59 +60,70 @@ Each release includes a Software Bill of Materials (SBOM) in CycloneDX JSON form
 
 ## Configuration
 
-The configuration file (`strigo.toml`) is organized into several sections:
+The configuration file (`strigo.toml`) contains several sections:
 
-- `[general]`: Basic settings including log level, installation directories, and shell configuration
-  - `log_level`: Logging verbosity ("debug", "info", "error")
-  - `sdk_install_dir`: Base directory for all SDK installations
-  - `cache_dir`: Directory for downloaded artifacts
-  - `log_path`: Log file location (empty for console output)
-  - `shell_config_path`: Shell RC file to modify for environment variables
-
-- `[registries]`: Defines where Strigo will look for SDKs
-  - Currently supports Nexus repositories
-  - `{repository}` in the URL is replaced with values from `[sdk_repositories]`
-
-- `[sdk_type]`: Defines supported SDK types and their installation directories
-  - Each SDK type needs a unique identifier and install directory
-  - Installation paths are relative to `sdk_install_dir`
-  - Example: JDKs will be installed in `sdk_install_dir/jdks`
-
-- `[sdk_repositories]`: Maps SDK distributions to their sources
-  - Links to a registry defined in `[registries]`
-  - Specifies repository name and path within that registry
-  - Must reference a type from `[sdk_type]`
-
-Here's a complete example:
+### General Configuration
 
 ```toml
 [general]
-log_level = "info"
-sdk_install_dir = "/home/user/.sdks"
-cache_dir = "/home/user/.cache/strigo"
-log_path = "/home/user/.logs/strigo"
-shell_config_path = "~/.bashrc"  # Shell configuration file path (e.g. ~/.bashrc, ~/.zshrc)
+log_level = "debug"                               # Log level (debug, info, warn, error)
+sdk_install_dir = "/home/debian/.sdks"            # Base directory for SDK installations
+cache_dir = "/home/debian/.cache/strigo"          # Cache directory for downloads
+keep_cache = false                                # Keep downloaded archives
+```
 
-[registries]
-nexus = { 
-    type = "nexus", 
-    api_url = "http://localhost:8081/service/rest/v1/assets?repository={repository}"
-}
+### SDK Types
 
-[sdk_type]
+Define the supported SDK types and their installation directories:
+
+```toml
+[sdk_types]
 jdk = {
     type = "jdk",
-    install_dir = "jdks"     # JDKs will be installed in sdk_install_dir/jdks
+    install_dir = "jdks"    # All JDK distributions will be installed under this directory
 }
 node = {
     type = "node",
-    install_dir = "nodes"    # Node.js will be installed in sdk_install_dir/nodes
+    install_dir = "nodes"   # All Node.js versions will be installed under this directory
 }
+```
 
+### Registries
+
+Configure the artifact repositories:
+
+```toml
+[registries]
+nexus = { 
+    type = "nexus",
+    api_url = "http://nexus-server:8081/service/rest/v1/assets?repository={repository}"
+}
+```
+
+### SDK Repositories
+
+Map SDK distributions to their repository locations:
+
+```toml
 [sdk_repositories]
-temurin = { registry = "nexus", repository = "raw", path = "jdk/adoptium/temurin" }
-corretto = { registry = "nexus", repository = "raw", path = "jdk/amazon/corretto" }
-zulu = { registry = "nexus", repository = "raw", path = "jdk/azul/zulu" }
+temurin = {                         # Temurin JDK distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "jdk",
+    path = "jdk/adoptium/temurin"
+}
+corretto = {                        # Amazon Corretto JDK distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "jdk",
+    path = "jdk/amazon/corretto"
+}
+node = {                            # Node.js distribution
+    registry = "nexus",
+    repository = "raw",
+    type = "node",
+    path = "node"
+}
 ```
 
 After installation, your directory structure will look like this:
@@ -145,6 +156,7 @@ After installation, your directory structure will look like this:
   - `type`: SDK type (jdk, node)
   - `version`: Version to use
   - `--set-env`: Automatically configure environment variables
+  - `--unset`: Remove environment variables configuration (e.g., `strigo use jdk --unset`)
   - Example: `strigo use jdk 17.0.8 --set-env`
 
 - `strigo list`: List installed SDK versions
@@ -172,12 +184,34 @@ After installation, your directory structure will look like this:
   - Example: `strigo --config /custom/path/strigo.toml install jdk 17.0.8`
   - Use this when you want to use a different configuration file than the default
 
+- `--json`: Output command results in JSON format
+  - Example: `strigo list jdk --json`
+  - Useful for scripting and automation
+  - Available for all commands that output data
+
+- `--json-logs`: Enable JSON-formatted logging
+  - Example: `strigo install jdk 17.0.8 --json-logs`
+  - Useful for log parsing and monitoring
+  - Includes timestamp, level, and structured data
+
 - `--help, -h`: Show help information for any command
   - Example: `strigo install --help`
 
 ## Environment Variables
 
 Strigo manages environment variables for different SDK types:
+
+### Managing Environment Variables
+- Use `--set-env` with the `use` command to add environment variables to your shell configuration:
+  ```bash
+  strigo use jdk temurin 17.0.8 --set-env
+  ```
+
+- Use `--unset` to remove environment variables from your shell configuration:
+  ```bash
+  strigo use jdk --unset  # Removes JAVA_HOME configuration
+  strigo use node --unset # Removes NODE_HOME configuration
+  ```
 
 ### Java Environment
 - `JAVA_HOME`: Points to the selected JDK installation
@@ -251,158 +285,15 @@ strigo/
 
 ## Architecture
 
-### Package Structure
-```
-strigo/
-├── cmd/                    # CLI commands implementation
-│   ├── install.go         # Installation command
-│   ├── list.go           # List command
-│   └── root.go           # Root command and common flags
-├── downloader/            # Download and extraction management
-│   ├── core/             # Core types and utilities
-│   │   ├── disk.go       # Disk space management
-│   │   ├── types.go      # Common type definitions
-│   │   └── validation.go # Input validation
-│   ├── network/          # Network operations
-│   │   └── client.go     # HTTP client implementation
-│   ├── cache/            # Cache management
-│   │   └── manager.go    # Cache operations
-│   ├── jdk/              # JDK-specific operations
-│   │   └── certificates.go # Certificate management
-│   ├── extract.go        # Archive extraction
-│   └── manager.go        # Download orchestration
-├── logging/              # Logging utilities
-│   └── logger.go        # Logger implementation
-└── config/              # Configuration management
-    └── config.go       # TOML configuration
-```
-
-### Key Components
-
-#### Core Package (`core/`)
-- Contains fundamental types and utilities
-- Manages disk operations and validation
-- Defines common types like `DownloadOptions` and `CertConfig`
-
-#### Network Package (`network/`)
-- Handles HTTP operations
-- Implements download functionality
-- Manages connection retries and timeouts
-
-#### Cache Package (`cache/`)
-- Manages downloaded artifacts
-- Implements cache invalidation
-- Handles cache directory structure
-
-#### JDK Package (`jdk/`)
-- JDK-specific operations
-- Certificate configuration
-- Environment setup
-
 ### Logging System
 
-Strigo implements a comprehensive logging system with multiple levels and formats:
+Strigo supports a **multi-level logging system**, configurable in `strigo.toml`. The available log levels are:
 
-#### Log Levels
-- `DEBUG`: Detailed information for debugging
-- `INFO`: General operational information
-- `ERROR`: Error conditions
+- `debug`: Logs everything, including detailed debugging information.
+- `info`: Logs general execution details and warnings.
+- `error`: Logs only critical failures.
 
-#### Log Formats
-
-##### 1. Text Format (Default)
-Standard text format with timestamps and emojis for better readability:
-```
-2025-03-04T20:49:49+01:00 [DEBUG] 📦 Starting extraction of OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz
-2025-03-04T20:49:50+01:00 [INFO] ✅ Extraction completed: 543 files, total size: 195MB
-```
-
-##### 2. JSON Format
-Structured JSON format for machine processing and integration with logging tools:
-```json
-{
-  "timestamp": "2025-03-04T20:49:49+01:00",
-  "level": "DEBUG",
-  "message": "Starting extraction",
-  "component": "extractor",
-  "data": {
-    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
-    "total_files": 543,
-    "total_size": 204472320
-  }
-}
-```
-
-To enable JSON logging, update your configuration:
-```toml
-[general]
-log_format = "json"  # "text" or "json"
-log_level = "debug"
-log_path = "/path/to/strigo.log"
-```
-
-#### Log Categories and Examples
-
-1. **Download Operations**
-```json
-{
-  "timestamp": "2025-03-04T20:49:48+01:00",
-  "level": "INFO",
-  "message": "Downloading JDK",
-  "component": "downloader",
-  "data": {
-    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
-    "bytes_written": 52428800,
-    "total_size": 115343360,
-    "progress": 45
-  }
-}
-```
-
-2. **Extraction Process**
-```json
-{
-  "timestamp": "2025-03-04T20:49:49+01:00",
-  "level": "DEBUG",
-  "message": "Extraction progress",
-  "component": "extractor",
-  "data": {
-    "file_name": "bin/java",
-    "file_size": 8234,
-    "total_files": 543,
-    "total_size": 204472320
-  }
-}
-```
-
-3. **Cache Operations**
-```json
-{
-  "timestamp": "2025-03-04T20:49:47+01:00",
-  "level": "INFO",
-  "message": "Cache hit",
-  "component": "cache",
-  "data": {
-    "file_name": "OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz",
-    "file_size": 115343360
-  }
-}
-```
-
-#### Structured Data Fields
-Les logs JSON incluent des champs structurés pour faciliter l'analyse :
-
-- `timestamp`: Date et heure au format RFC3339
-- `level`: Niveau de log (DEBUG, INFO, ERROR)
-- `message`: Message principal
-- `component`: Composant émetteur (downloader, extractor, cache, etc.)
-- `data`: Données additionnelles structurées
-  - `file_name`: Nom du fichier traité
-  - `file_size`: Taille du fichier en octets
-  - `bytes_written`: Octets écrits pour les téléchargements
-  - `total_size`: Taille totale en octets
-  - `total_files`: Nombre total de fichiers
-  - `progress`: Progression en pourcentage
+Logs are stored in the directory specified in `log_path` under `strigo.toml`.
 
 ## Nexus Repository Structure
 
@@ -477,14 +368,6 @@ strigo available jdk corretto
     ✅ amazon-corretto-8.442.06.1-linux-x64.tar.gz
 ```
 
-### Checking Available Corretto JDKs
-
-#### Command:
-```sh
-strigo available jdk corretto
-```
-
-
 ### Checking specific version (temurin 11)
 
 #### Command:
@@ -498,18 +381,3 @@ strigo available jdk temurin 11
   - 11:
     ✅ OpenJDK11U-jdk_x64_linux_hotspot_11.0.24_8.tar.gz
     ✅ OpenJDK11U-jdk_x64_linux_hotspot_11.0.26_4.tar.gz
-```
-
-
-
----
-
-## Logging System
-
-Strigo supports a **multi-level logging system**, configurable in `strigo.toml`. The available log levels are:
-
-- `debug`: Logs everything, including detailed debugging information.
-- `info`: Logs general execution details and warnings.
-- `error`: Logs only critical failures.
-
-Logs are stored in the directory specified in `log_path` under `strigo.toml`.
