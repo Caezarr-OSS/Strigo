@@ -21,6 +21,16 @@ tasks:
     cmds:
       - go test -v ./...
 
+  lint:
+    desc: Run linters
+    cmds:
+      - go vet ./...
+      - |
+        if ! command -v golangci-lint &> /dev/null; then
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        fi
+      - golangci-lint run
+
   clean:
     desc: Clean build artifacts
     cmds:
@@ -29,7 +39,7 @@ tasks:
 
   release:
     desc: Build release binaries for all supported platforms
-    deps: [clean]
+    deps: [clean, test, lint]
     cmds:
       # Darwin (macOS) AMD64
       - GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build {{.BUILD_FLAGS}} -o bin/{{.BINARY_NAME}}_darwin_amd64
