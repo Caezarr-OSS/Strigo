@@ -9,7 +9,7 @@ import (
 	"strigo/logging"
 )
 
-// ListOutput structure pour la sortie JSON des commandes list et available
+// ListOutput structure for JSON output of list and available commands
 type ListOutput struct {
 	Types         []string `json:"types,omitempty"`
 	Distributions []string `json:"distributions,omitempty"`
@@ -17,7 +17,7 @@ type ListOutput struct {
 	Error         string   `json:"error,omitempty"`
 }
 
-// outputJSON gère la sortie JSON pour toutes les commandes
+// outputJSON handles JSON output for all commands
 func outputJSON(data interface{}) error {
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -27,15 +27,15 @@ func outputJSON(data interface{}) error {
 	return nil
 }
 
-// GetInstallPath retourne le chemin d'installation complet pour un SDK
+// GetInstallPath returns the complete installation path for an SDK
 func GetInstallPath(cfg *config.Config, sdkType, distribution, version string) (string, error) {
-	// Vérifier si le type de SDK existe
+	// Check if SDK type exists
 	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
 	if !exists {
 		return "", fmt.Errorf("SDK type %s not found in configuration", sdkType)
 	}
 
-	// Construire le chemin complet
+	// Build complete path
 	return filepath.Join(
 		cfg.General.SDKInstallDir,
 		sdkTypeConfig.InstallDir,
@@ -44,10 +44,12 @@ func GetInstallPath(cfg *config.Config, sdkType, distribution, version string) (
 	), nil
 }
 
-// ExitWithError affiche l'erreur et quitte avec le code 1
+// ExitWithError displays the error and exits with code 1
 func ExitWithError(err error) {
 	if jsonOutput {
-		outputJSON(ListOutput{Error: err.Error()})
+		if outputErr := outputJSON(ListOutput{Error: err.Error()}); outputErr != nil {
+			logging.LogError("Error outputting JSON: %v", outputErr)
+		}
 	} else {
 		logging.LogError("❌ %v", err)
 	}

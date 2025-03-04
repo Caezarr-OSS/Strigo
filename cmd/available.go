@@ -132,15 +132,6 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
-func mapToSortedSlice(m map[string]bool) []string {
-	var slice []string
-	for k := range m {
-		slice = append(slice, k)
-	}
-	sort.Strings(slice)
-	return slice
-}
-
 // Handlers pour chaque cas d'utilisation
 func handleNoArgs(output *AvailableOutput) error {
 	types := getValidSDKTypes()

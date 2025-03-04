@@ -20,7 +20,7 @@ const (
 	ErrorLevel = "error"
 )
 
-// LogEntry représente une entrée de log au format JSON
+// LogEntry represents a JSON log entry
 type LogEntry struct {
 	Timestamp string      `json:"timestamp"`
 	Level     string      `json:"level"`
@@ -34,14 +34,14 @@ var (
 	logLevel  string
 	logger    *log.Logger
 	preLogger *bytes.Buffer = new(bytes.Buffer)
-	useJSON   bool // Indique si on utilise le format JSON
+	useJSON   bool // Indicates if JSON format is used
 )
 
 func InitLogger(logPath string, level string, jsonFormat bool) error {
 	logLevel = level
 	useJSON = jsonFormat
 
-	// Préparer la destination des logs
+	// Prepare log destinations
 	var writers []io.Writer
 	writers = append(writers, os.Stdout)
 
@@ -64,7 +64,7 @@ func InitLogger(logPath string, level string, jsonFormat bool) error {
 	}
 
 	multiWriter := io.MultiWriter(writers...)
-	logger = log.New(multiWriter, "", 0) // Pas de préfixe car on gère nous-mêmes le format
+	logger = log.New(multiWriter, "", 0) // No prefix as we handle formatting ourselves
 
 	if preLogger != nil {
 		scanner := bufio.NewScanner(preLogger)
@@ -136,7 +136,7 @@ func LogDebug(format string, v ...interface{}) {
 	}
 }
 
-// LogOutputWithData affiche un message avec des données structurées optionnelles
+// LogOutputWithData displays a message with optional structured data
 func LogOutputWithData(format string, data interface{}, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	
@@ -153,18 +153,22 @@ func LogOutputWithData(format string, data interface{}, args ...interface{}) {
 		if jsonData, err := json.Marshal(entry); err == nil {
 			fmt.Println(string(jsonData))
 			if logFile != nil {
-				logFile.WriteString(string(jsonData) + "\n")
+				if _, err := logFile.WriteString(string(jsonData) + "\n"); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
+				}
 			}
 		}
 	} else {
 		fmt.Println(message)
 		if logFile != nil {
-			logFile.WriteString(message + "\n")
+			if _, err := logFile.WriteString(message + "\n"); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
+			}
 		}
 	}
 }
 
-// LogOutput est maintenant un wrapper autour de LogOutputWithData sans données
+// LogOutput is a wrapper around LogOutputWithData without data
 func LogOutput(format string, args ...interface{}) {
 	LogOutputWithData(format, nil, args...)
 }
@@ -193,7 +197,9 @@ func PreLog(level string, format string, args ...interface{}) {
 	}
 
 	if !strings.HasPrefix(logEntry, "[DEBUG] 📜 Raw file content") {
-		preLogger.WriteString(logEntry)
+		if _, err := preLogger.WriteString(logEntry); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing to pre-log buffer: %v\n", err)
+		}
 	}
 }
 

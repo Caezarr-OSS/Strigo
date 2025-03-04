@@ -47,25 +47,25 @@ func handleRemove(sdkType, distribution, version string) error {
 		return fmt.Errorf("configuration is not loaded")
 	}
 
-	// Vérifier si le type de SDK existe
+	// Check if SDK type exists
 	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
 	if !exists {
 		return fmt.Errorf("SDK type %s not found in configuration", sdkType)
 	}
 
-	// Construire le chemin d'installation
+	// Build installation path
 	installPath := filepath.Join(cfg.General.SDKInstallDir, sdkTypeConfig.InstallDir, distribution, version)
 	logging.LogDebug("🔍 Checking installation path: %s", installPath)
 
-	// Vérifier si le dossier existe
+	// Check if directory exists
 	if _, err := os.Stat(installPath); os.IsNotExist(err) {
 		logging.LogDebug("❌ Installation path not found: %s", installPath)
 
-		// Vérifier si c'est peut-être le dossier décompressé
+		// Check if it might be the extracted directory
 		extractedPath := filepath.Join(installPath, fmt.Sprintf("jdk-%s", version))
 		logging.LogDebug("🔍 Checking extracted path: %s", extractedPath)
 
-		// Lister le contenu du dossier parent pour debug
+		// List parent directory content for debug
 		parentDir := filepath.Dir(installPath)
 		if entries, err := os.ReadDir(parentDir); err == nil {
 			logging.LogDebug("📂 Content of %s:", parentDir)
@@ -81,7 +81,7 @@ func handleRemove(sdkType, distribution, version string) error {
 
 	logging.LogDebug("🗑️ Removing SDK from: %s", installPath)
 
-	// Supprimer le dossier
+	// Remove directory
 	if err := os.RemoveAll(installPath); err != nil {
 		logging.LogError("❌ Failed to remove SDK: %v", err)
 		logging.LogDebug("Error details: %v", err)
@@ -116,25 +116,16 @@ func handleRemove(sdkType, distribution, version string) error {
 	return nil
 }
 
-func isActiveVersion(tool, vendor, version string) bool {
-	// TODO: This function will be implemented with the 'use' command
-	// For now, we assume no version is active
-	return false
-}
-
-func isDirEmpty(path string) (bool, error) {
-	f, err := os.Open(path)
+func isDirEmpty(dir string) (bool, error) {
+	f, err := os.Open(dir)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
 
 	_, err = f.Readdirnames(1)
-	if err == nil {
-		return false, nil // Directory is not empty
-	}
 	if err == io.EOF {
 		return true, nil // Directory is empty
 	}
-	return false, err
+	return false, err // Either error or directory not empty
 }
