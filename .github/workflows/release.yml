@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - '*'  # Accepte n'importe quel tag
+    branches:
+      - main  # S'assure que le tag vient de main
 
 permissions:
   contents: write # Nécessaire pour créer des releases
@@ -29,13 +31,13 @@ jobs:
           version: '3.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install git-chglog
+        run: |
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+
       - name: Generate Changelog
-        id: changelog
-        uses: conventional-changelog/releaser-tools@v1.0.0
-        with:
-          preset: 'conventionalcommits'
-          infile: 'CHANGELOG.md'
-          outfile: 'CHANGELOG.md'
+        run: |
+          git-chglog -o CHANGELOG.md
 
       - name: Build Release Binaries
         run: task release
