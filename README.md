@@ -70,7 +70,16 @@ log_level = "debug"                               # Log level (debug, info, warn
 sdk_install_dir = "/home/debian/.sdks"            # Base directory for SDK installations
 cache_dir = "/home/debian/.cache/strigo"          # Cache directory for downloads
 keep_cache = false                                # Keep downloaded archives
+
+# Java certificates paths
+jdk_security_path = "lib/security/cacerts"        # Relative path in JDK
+system_cacerts_path = "/etc/ssl/certs"  # System Java certificates path
 ```
+
+The system_ca_certs_path must be your host system custom ca folder (on fedora it's /etc/pki/ca-trust/source/anchors for example)
+
+And the jdk_security_path corresponds to the security path folder in the java environment (to the java truststore)
+
 
 ### SDK Types
 
