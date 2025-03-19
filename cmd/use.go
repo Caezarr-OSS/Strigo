@@ -75,15 +75,24 @@ func getSDKBinPath(basePath string, sdkType string) (string, error) {
 		return "", fmt.Errorf("failed to read installation directory: %w", err)
 	}
 
+	// SDK directory selection logic
 	var sdkDir string
+	dirCount := 0
+	
+	// Count directories and remember the first one
 	for _, entry := range entries {
 		if entry.IsDir() {
-			if (sdkType == "jdk" && strings.HasPrefix(entry.Name(), "jdk")) ||
-				(sdkType == "node" && strings.HasPrefix(entry.Name(), "node")) {
+			dirCount++
+			// If it's the first directory, remember it
+			if sdkDir == "" {
 				sdkDir = entry.Name()
-				break
 			}
 		}
+	}
+	
+	// If multiple directories exist, it's ambiguous
+	if dirCount > 1 {
+		sdkDir = ""
 	}
 
 	if sdkDir == "" {
@@ -103,10 +112,10 @@ func findRcFile() (string, error) {
 	shell := os.Getenv("SHELL")
 	home := os.Getenv("HOME")
 
-	// Liste des fichiers RC possibles
+	// List of possible RC files
 	var rcFiles []string
 
-	// Déterminer l'ordre en fonction du shell
+	// Determine the order based on the shell
 	if strings.HasSuffix(shell, "zsh") {
 		rcFiles = []string{
 			filepath.Join(home, ".zshrc"),
@@ -118,14 +127,14 @@ func findRcFile() (string, error) {
 			filepath.Join(home, ".zshrc"), // fallback
 		}
 	} else {
-		// Shell non reconnu, essayer les deux
+		// Unrecognized shell, try both
 		rcFiles = []string{
 			filepath.Join(home, ".bashrc"),
 			filepath.Join(home, ".zshrc"),
 		}
 	}
 
-	// Chercher le premier fichier RC existant
+	// Find the first existing RC file
 	for _, file := range rcFiles {
 		if _, err := os.Stat(file); err == nil {
 			return file, nil
@@ -159,22 +168,22 @@ func handleUnset(sdkType string) error {
 		expandedPath = filepath.Join(home, rcFile[1:])
 	}
 
-	// Lire le contenu actuel
+	// Read the current content
 	content, err := os.ReadFile(expandedPath)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %w", expandedPath, err)
 	}
 
-	// Supprimer le bloc de configuration Strigo
+	// Remove the Strigo configuration block
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	var removed bool
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		// Si on trouve le commentaire Strigo
+		// If we find the Strigo comment
 		if strings.Contains(line, fmt.Sprintf("# Added by Strigo - %s configuration", strings.ToUpper(sdkType))) {
-			// On saute cette ligne et les 2 suivantes
-			i += 2 // +2 car la boucle fera +1
+			// Skip this line and the next two
+			i += 2 // +2 because the loop will do +1
 			removed = true
 			continue
 		}
@@ -186,7 +195,7 @@ func handleUnset(sdkType string) error {
 		return nil
 	}
 
-	// Écrire le fichier
+	// Write the file
 	newContent := strings.Join(newLines, "\n") + "\n"
 	if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to update %s: %w", expandedPath, err)
@@ -203,44 +212,44 @@ func handleUse(sdkType, distribution, version string) error {
 		return fmt.Errorf("configuration is not loaded")
 	}
 
-	// Vérifier si le type de SDK existe
+	// Check if the SDK type exists
 	sdkTypeConfig, exists := cfg.SDKTypes[sdkType]
 	if !exists {
 		return fmt.Errorf("SDK type %s not found in configuration", sdkType)
 	}
 
-	// Construire le chemin d'installation
+	// Build the installation path
 	installPath := filepath.Join(cfg.General.SDKInstallDir, sdkTypeConfig.InstallDir, distribution, version)
 
-	// Vérifier si le SDK est installé
+	// Check if the SDK is installed
 	if _, err := os.Stat(installPath); os.IsNotExist(err) {
 		return fmt.Errorf("version %s %s %s is not installed", sdkType, distribution, version)
 	}
 
-	// Obtenir le chemin du binaire
+	// Get the binary path
 	sdkPath, err := getSDKBinPath(installPath, sdkType)
 	if err != nil {
 		return fmt.Errorf("failed to find SDK binary path: %w", err)
 	}
 
-	// Créer le lien symbolique
+	// Create the symbolic link
 	linkPath := filepath.Join(cfg.General.SDKInstallDir, fmt.Sprintf("current-%s", sdkType))
 
-	// Supprimer le lien existant s'il existe
+	// Remove the existing link if it exists
 	if _, err := os.Lstat(linkPath); err == nil {
 		if err := os.Remove(linkPath); err != nil {
 			return fmt.Errorf("failed to remove existing symbolic link: %w", err)
 		}
 	}
 
-	// Créer le nouveau lien
+	// Create the new link
 	if err := os.Symlink(sdkPath, linkPath); err != nil {
 		return fmt.Errorf("failed to create symbolic link: %w", err)
 	}
 
 	logging.LogInfo("✅ Successfully set %s %s version %s as active", sdkType, distribution, version)
 
-	// Si --set-env est spécifié, configurer les variables d'environnement
+	// If --set-env is specified, configure the environment variables
 	if setEnvVar {
 		if err := configureEnvironment(sdkType, sdkPath); err != nil {
 			return fmt.Errorf("failed to configure environment: %w", err)
@@ -265,7 +274,7 @@ func handleUse(sdkType, distribution, version string) error {
 }
 
 func configureEnvironment(sdkType, sdkPath string) error {
-	// Trouver le fichier RC approprié
+	// Find the appropriate RC file
 	rcFile, err := findRcFile()
 	if err != nil {
 		return err
@@ -281,13 +290,13 @@ func configureEnvironment(sdkType, sdkPath string) error {
 		expandedPath = filepath.Join(home, rcFile[1:])
 	}
 
-	// Lire le contenu actuel
+	// Read the current content
 	content, err := os.ReadFile(expandedPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read rc file: %w", err)
 	}
 
-	// Préparer les nouvelles lignes
+	// Prepare the new lines
 	var envVar string
 	if sdkType == "jdk" {
 		envVar = "JAVA_HOME"
@@ -298,7 +307,7 @@ func configureEnvironment(sdkType, sdkPath string) error {
 	newConfig := fmt.Sprintf("\n# Added by Strigo - %s configuration\nexport %s=%s\nexport PATH=$%s/bin:$PATH\n",
 		strings.ToUpper(sdkType), envVar, sdkPath, envVar)
 
-	// Supprimer l'ancienne configuration si elle existe
+	// Remove the old configuration if it exists
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	for i := 0; i < len(lines); i++ {
@@ -310,10 +319,10 @@ func configureEnvironment(sdkType, sdkPath string) error {
 		newLines = append(newLines, line)
 	}
 
-	// Ajouter la nouvelle configuration
+	// Add the new configuration
 	newContent := strings.Join(newLines, "\n") + newConfig
 
-	// Écrire le nouveau contenu
+	// Write the new content
 	if err := os.WriteFile(expandedPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to update rc file: %w", err)
 	}

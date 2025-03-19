@@ -8,7 +8,6 @@ import (
 	"strigo/downloader/core"
 	"strigo/logging"
 	"strigo/repository"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -91,7 +90,7 @@ func handleInstall(sdkType, distribution, version string) error {
 	}
 
 	// Fetch available versions with filter
-	assets, err := repository.FetchAvailableVersions(sdkRepo, registry, version, true) // true pour supprimer l'affichage
+	assets, err := repository.FetchAvailableVersions(sdkRepo, registry, version, true) // true to remove display
 	if err != nil {
 		logging.LogError("❌ Failed to fetch versions: %v", err)
 		return nil
@@ -160,37 +159,49 @@ func handleInstall(sdkType, distribution, version string) error {
 		return nil
 	}
 
-	// Pour les JDKs, gérer les certificats
+	// For JDKs, manage certificates
 	if sdkType == "jdk" {
-		// Trouver le dossier JDK extrait
+		// Find the extracted JDK folder
 		entries, err := os.ReadDir(installPath)
 		if err != nil {
 			return fmt.Errorf("failed to read installation directory: %w", err)
 		}
 
+		// JDK directory selection logic
 		var jdkDir string
+		dirCount := 0
+		
+		// Count directories and remember the first one
 		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), "jdk") {
-				jdkDir = entry.Name()
-				break
+			if entry.IsDir() {
+				dirCount++
+				// If it's the first directory, remember it
+				if jdkDir == "" {
+					jdkDir = entry.Name()
+				}
 			}
+		}
+		
+		// If multiple directories exist, it's ambiguous
+		if dirCount > 1 {
+			jdkDir = ""
 		}
 
 		if jdkDir == "" {
 			return fmt.Errorf("could not find JDK directory in %s", installPath)
 		}
 
-		// Utiliser le chemin complet pour les certificats
+		// Use the full path for certificates
 		jdkPath := filepath.Join(installPath, jdkDir)
 		jdkSecPath := filepath.Join(jdkPath, cfg.General.JDKSecurityPath)
 
-		// 1. Supprimer les certificats par défaut
+		// 1. Remove default JDK certificates
 		logging.LogDebug("🗑️ Removing default JDK certificates...")
 		if err := os.RemoveAll(jdkSecPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove default certificates: %w", err)
 		}
 
-		// 2. Créer le lien symbolique vers les certificats système
+		// 2. Create a symbolic link to system certificates
 		logging.LogDebug("🔗 Creating link to system certificates...")
 		if err := os.MkdirAll(filepath.Dir(jdkSecPath), 0755); err != nil {
 			return fmt.Errorf("failed to create security directory: %w", err)
