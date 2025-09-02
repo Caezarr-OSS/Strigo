@@ -133,6 +133,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md       
           files: |
             dist/*.tar.gz
             dist/checksums.txt
