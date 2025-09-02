@@ -3,11 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - "*"   # Mets 'v*' si tu veux forcer un préfixe v
+      - "*"   
 
 permissions:
   contents: write
-  # id-token: write  # décommente si tu ajoutes Cosign keyless plus tard
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,14 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # requis pour vérif 'tag ∈ main' & changelog
+          fetch-depth: 0  # required for the 'tag on main' check and changelog
 
       - name: Ensure tag commit is reachable from main
         shell: bash
         run: |
           git fetch origin main --depth=1
           if ! git branch -r --contains "$GITHUB_SHA" | grep -q "origin/main"; then
-            echo "❌ Le tag doit pointer vers un commit contenu dans 'main'."
+            echo "❌ The tag must point to a commit that is contained in 'main'."
             exit 1
           fi
 
@@ -61,8 +60,8 @@ jobs:
           mkdir -p "$OUTDIR"
           SUFFIX="${GOOS}-${GOARCH}"
           BIN="${APP_NAME}-${SUFFIX}"
-          # Si tu as une Task 'release', tu peux l'appeler ici. Sinon :
-          go build -ldflags="-s -w" -o "${BIN}" ./...
+          # Build ONLY the root main package; `./...` would span multiple packages and break -o <file>
+          go build -ldflags="-s -w" -o "${BIN}" .
           TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
           tar -czf "${TAR}" "${BIN}"
           rm -f "${BIN}"
