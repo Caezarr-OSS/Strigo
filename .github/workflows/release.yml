@@ -35,7 +35,6 @@ jobs:
       - name: Ensure tag commit is reachable from main
         shell: bash
         run: |
-          # Fetch main explicitly so we can check ancestry reliably
           git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "❌ The tag must point to a commit that is contained in 'main'."
@@ -60,7 +59,6 @@ jobs:
           mkdir -p "$OUTDIR"
           SUFFIX="${GOOS}-${GOARCH}"
           BIN="${APP_NAME}-${SUFFIX}"
-          # Build ONLY the root main package; `./...` would span multiple packages and break -o <file>
           go build -trimpath -ldflags="-s -w" -o "${BIN}" .
           TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
           tar -czf "${TAR}" "${BIN}"
@@ -69,7 +67,6 @@ jobs:
       - name: Generate checksums (SHA-256)
         run: |
           set -euo pipefail
-          ls -1 dist/*.tar.gz
           (cd dist && sha256sum *.tar.gz > checksums.txt)
 
       - name: Generate SBOM (CycloneDX)
@@ -80,9 +77,8 @@ jobs:
           format: cyclonedx-json
           output-file: sbom.json
 
-      - name: Install git-chglog (via go install)
+      - name: Install git-chglog (stable release)
         run: |
-          set -euo pipefail
           go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
@@ -92,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .chglog/config.yml ]; then
-            git-chglog --config .chglog/config.yml --tag "$TAG" > CHANGELOG.md
+            git-chglog --config .chglog/config.yml --next-tag "$TAG" > CHANGELOG.md
           else
             echo "NOTE: .chglog/config.yml not found. Skipping git-chglog." > CHANGELOG.md
           fi
