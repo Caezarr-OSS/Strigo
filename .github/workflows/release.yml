@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "*"   
+      - "*"   # change to 'v*' if you want to enforce a 'v' prefix
 
 permissions:
   contents: write
@@ -27,15 +27,17 @@ jobs:
         goarch: [amd64, arm64]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # required for the 'tag on main' check and changelog
+          fetch-depth: 0   # keep full history for tag checks and changelog
 
       - name: Ensure tag commit is reachable from main
         shell: bash
         run: |
-          git fetch origin main --depth=1
-          if ! git branch -r --contains "$GITHUB_SHA" | grep -q "origin/main"; then
+          # Fetch main explicitly so we can check ancestry reliably
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "❌ The tag must point to a commit that is contained in 'main'."
             exit 1
           fi
@@ -45,30 +47,30 @@ jobs:
         with:
           go-version: "1.21.x"
 
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pre-fetch modules
+        run: go mod download
 
       - name: Build binaries (${{ matrix.goos }}/${{ matrix.goarch }})
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          set -euo pipefail
           OUTDIR=dist
           mkdir -p "$OUTDIR"
           SUFFIX="${GOOS}-${GOARCH}"
           BIN="${APP_NAME}-${SUFFIX}"
           # Build ONLY the root main package; `./...` would span multiple packages and break -o <file>
-          go build -ldflags="-s -w" -o "${BIN}" .
+          go build -trimpath -ldflags="-s -w" -o "${BIN}" .
           TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
           tar -czf "${TAR}" "${BIN}"
           rm -f "${BIN}"
 
-      - name: Generate checksums
+      - name: Generate checksums (SHA-256)
         run: |
-          (cd dist && shasum -a 256 *.tar.gz > checksums.txt)
+          set -euo pipefail
+          ls -1 dist/*.tar.gz
+          (cd dist && sha256sum *.tar.gz > checksums.txt)
 
       - name: Generate SBOM (CycloneDX)
         uses: anchore/sbom-action@v0
@@ -78,17 +80,22 @@ jobs:
           format: cyclonedx-json
           output-file: sbom.json
 
-      - name: Install git-chglog
+      - name: Install git-chglog (via go install)
         run: |
-          curl -sSL https://github.com/git-chglog/git-chglog/releases/latest/download/git-chglog_linux_amd64.tar.gz \
-            | tar -xz -C /usr/local/bin git-chglog
-          chmod +x /usr/local/bin/git-chglog
+          set -euo pipefail
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Generate CHANGELOG for this tag
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          git-chglog --config .chglog/config.yml --tag "$TAG" > CHANGELOG.md
+          set -euo pipefail
+          if [ -f .chglog/config.yml ]; then
+            git-chglog --config .chglog/config.yml --tag "$TAG" > CHANGELOG.md
+          else
+            echo "NOTE: .chglog/config.yml not found. Skipping git-chglog." > CHANGELOG.md
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
