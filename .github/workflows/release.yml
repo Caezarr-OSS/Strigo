@@ -3,56 +3,136 @@ name: Release
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+*'  # Match semantic versions without 'v' prefix
+      - "*"   #  No v prefix
 
 permissions:
-  contents: write # Required for creating releases
+  contents: write
+  id-token: write   # required for Cosign keyless (OIDC)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: strigo
+  COSIGN_YES: "true"   # avoid prompts
+  CGO_ENABLED: "0"
 
 jobs:
-  release:
+  build-and-release:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin]      # linux = Linux, darwin = macOS
+        goarch: [amd64, arm64]
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+    steps:
+      - uses: actions/checkout@v4
         with:
-          go-version: '1.21'
-          cache: true
+          fetch-depth: 0  # necessary for verification 'tag in main' and changelog
+
+      - name: Ensure tag commit is reachable from main
+        shell: bash
+        run: |
+          git fetch origin main --depth=1
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -q "origin/main"; then
+            echo "❌ Le tag doit pointer vers un commit contenu dans 'main'."
+            exit 1
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
 
       - name: Install Task
-        uses: arduino/setup-task@v1
+        uses: arduino/setup-task@v3
+
+      - name: Build binaries (${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+          SUFFIX="${GOOS}-${GOARCH}"
+          BIN="${APP_NAME}-${SUFFIX}"
+          # Si tu as une task 'release', tu peux l'appeler ici. Sinon :
+          go build -ldflags="-s -w" -o "${BIN}" ./...
+          TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
+          tar -czf "${TAR}" "${BIN}"
+          rm -f "${BIN}"
+
+      - name: Generate checksums
+        run: |
+          (cd dist && shasum -a 256 *.tar.gz > checksums.txt)
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
         with:
-          version: '3.x'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dist
+          upload-artifact: false
+          format: cyclonedx-json
+          output-file: sbom.json
 
       - name: Install git-chglog
         run: |
-          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+          curl -sSL https://github.com/git-chglog/git-chglog/releases/latest/download/git-chglog_linux_amd64.tar.gz \
+            | tar -xz -C /usr/local/bin git-chglog
+          chmod +x /usr/local/bin/git-chglog
 
-      - name: Generate Changelog
+      - name: Generate CHANGELOG for this tag
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          git-chglog -o CHANGELOG.md
+          git-chglog --config .chglog/config.yml --tag "$TAG" > CHANGELOG.md
 
-      - name: Build Release Binaries
-        run: task release
+      # --- Signature Keyless (Cosign + OIDC) ---
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
-      - name: Generate SBOM
+      - name: Sign artifacts with Cosign (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "true"  # compatible keyless 
         run: |
-          go install github.com/anchore/syft/cmd/syft@latest
-          syft . -o cyclonedx-json > bin/sbom.json
+          for f in dist/*.tar.gz; do
+            cosign sign-blob \
+              --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem" \
+              "${f}"
+          done
+          # On signe aussi le fichier de checksums
+          cosign sign-blob \
+            --yes \
+            --output-signature "dist/checksums.txt.sig" \
+            --output-certificate "dist/checksums.txt.pem" \
+            "dist/checksums.txt"
+
+      # --- Attestation 
+      - name: Attest SBOM with Cosign
+        run: |
+          cosign attest \
+            --yes \
+            --predicate sbom.json \
+            --type cyclonedx \
+            --rekor-url https://rekor.sigstore.dev \
+            "dist"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          body_path: CHANGELOG.md
+          name: ${{ github.ref_name }}
           files: |
-            bin/*.tar.gz
-            bin/checksums.txt
-            bin/sbom.json
+            dist/*.tar.gz
+            dist/*.sig
+            dist/*.pem
+            dist/checksums.txt
+            dist/checksums.txt.sig
+            dist/checksums.txt.pem
+            sbom.json
             CHANGELOG.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          generate_release_notes: false
