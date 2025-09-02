@@ -17,8 +17,8 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
-  build-and-release:
-    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+  build-and-package:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -30,7 +30,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # keep full history for tag checks and changelog
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+
+      - name: Pre-fetch modules
+        run: go mod download
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+          SUFFIX="${GOOS}-${GOARCH}"
+          BIN="${APP_NAME}-${SUFFIX}"
+          # Build ONLY the root main package; ./... would span multiple packages and break -o <file>
+          go build -trimpath -ldflags="-s -w" -o "${BIN}" .
+          TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
+          tar -czf "${TAR}" "${BIN}"
+          rm -f "${BIN}"
+          echo "Built ${TAR}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{
+            format('{0}-{1}', matrix.goos, matrix.goarch)
+          }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: [build-and-package]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for tag checks and changelog
 
       - name: Ensure tag commit is reachable from main
         shell: bash
@@ -41,33 +87,22 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
-          go-version: "1.21.x"
+          # Download all artifacts from all matrix legs into ./dist
+          path: dist
+          merge-multiple: true
 
-      - name: Pre-fetch modules
-        run: go mod download
-
-      - name: Build binaries (${{ matrix.goos }}/${{ matrix.goarch }})
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          set -euo pipefail
-          OUTDIR=dist
-          mkdir -p "$OUTDIR"
-          SUFFIX="${GOOS}-${GOARCH}"
-          BIN="${APP_NAME}-${SUFFIX}"
-          go build -trimpath -ldflags="-s -w" -o "${BIN}" .
-          TAR="${OUTDIR}/${APP_NAME}_${SUFFIX}.tar.gz"
-          tar -czf "${TAR}" "${BIN}"
-          rm -f "${BIN}"
+      - name: List downloaded artifacts
+        run: ls -lah dist
 
       - name: Generate checksums (SHA-256)
         run: |
           set -euo pipefail
           (cd dist && sha256sum *.tar.gz > checksums.txt)
+          echo "Checksums:"
+          cat dist/checksums.txt
 
       - name: Generate SBOM (CycloneDX)
         uses: anchore/sbom-action@v0
@@ -77,29 +112,11 @@ jobs:
           format: cyclonedx-json
           output-file: sbom.json
 
-      # ---- Stable git-chglog + preflight diagnostics ----
-      - name: Install git-chglog (v0.15.4 stable)
+      - name: Install git-chglog (stable v0.15.4)
         run: |
           set -euo pipefail
           go install github.com/git-chglog/git-chglog/cmd/git-chglog@v0.15.4
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Changelog preflight
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          echo "git-chglog version:"
-          git-chglog --version || true
-          echo "Resolved tag: $TAG"
-          echo "Local tags (last 20):"
-          git tag --sort=-creatordate | head -n 20
-          echo "Does $TAG exist locally?"
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "Yes, tag exists locally."
-          else
-            echo "No, tag not found locally (this would be unusual on a tag push)."
-          fi
 
       - name: Generate CHANGELOG for this tag (existing tag mode)
         env:
@@ -107,13 +124,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .chglog/config.yml ]; then
-            # Render the entry for the EXISTING tag (no --next-tag here)
+            # Render entry for the EXISTING tag (no --next-tag, no --tag)
             git-chglog --config .chglog/config.yml "$TAG" > CHANGELOG.md
           else
             echo "NOTE: .chglog/config.yml not found. Skipping git-chglog." > CHANGELOG.md
           fi
 
-      - name: Create GitHub Release
+      - name: Create/Update GitHub Release (single, race-free)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
