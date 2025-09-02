@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "*"   # change to 'v*' if you want to enforce a 'v' prefix
+      - "*"  
 
 permissions:
   contents: write
@@ -60,9 +60,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{
-            format('{0}-{1}', matrix.goos, matrix.goarch)
-          }}
+          name: ${{ format('{0}-{1}', matrix.goos, matrix.goarch) }}
           path: dist/*.tar.gz
           if-no-files-found: error
           retention-days: 7
