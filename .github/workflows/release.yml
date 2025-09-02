@@ -77,18 +77,38 @@ jobs:
           format: cyclonedx-json
           output-file: sbom.json
 
-      - name: Install git-chglog (stable release)
+      # ---- Stable git-chglog + preflight diagnostics ----
+      - name: Install git-chglog (v0.15.4 stable)
         run: |
-          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+          set -euo pipefail
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@v0.15.4
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Generate CHANGELOG for this tag
+      - name: Changelog preflight
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo "git-chglog version:"
+          git-chglog --version || true
+          echo "Resolved tag: $TAG"
+          echo "Local tags (last 20):"
+          git tag --sort=-creatordate | head -n 20
+          echo "Does $TAG exist locally?"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Yes, tag exists locally."
+          else
+            echo "No, tag not found locally (this would be unusual on a tag push)."
+          fi
+
+      - name: Generate CHANGELOG for this tag (existing tag mode)
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [ -f .chglog/config.yml ]; then
-            git-chglog --config .chglog/config.yml --next-tag "$TAG" > CHANGELOG.md
+            # Render the entry for the EXISTING tag (no --next-tag here)
+            git-chglog --config .chglog/config.yml "$TAG" > CHANGELOG.md
           else
             echo "NOTE: .chglog/config.yml not found. Skipping git-chglog." > CHANGELOG.md
           fi
