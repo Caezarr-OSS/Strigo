@@ -1,0 +1,16 @@
+name: Commit Message Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint PR commits
+        uses: wagoid/commitlint-github-action@v6

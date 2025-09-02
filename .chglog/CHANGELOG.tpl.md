@@ -1,49 +1,35 @@
+# {{ .Info.Title }}
+
 {{ if .Versions -}}
-# Changelog
-
-{{ if .Unreleased.CommitGroups -}}
-## [Unreleased]
-
-{{ range .Unreleased.CommitGroups -}}
-### {{ .Title }}
-{{ range .Commits -}}
-- {{ if .Scope }}**{{ .Scope }}:** {{ end }}{{ .Subject }}
-{{ end }}
-{{ end -}}
-{{ end -}}
-
 {{ range .Versions }}
-## {{ if .Tag.Previous }}[{{ .Tag.Name }}]{{ else }}{{ .Tag.Name }}{{ end }} - {{ datetime "2006-01-02" .Tag.Date }}
+## {{ if .Tag.Previous }}[{{ .Tag.Name }}]({{ $.Info.RepositoryURL }}/compare/{{ .Tag.Previous.Name }}...{{ .Tag.Name }}){{ else }}{{ .Tag.Name }}{{ end }} - {{ datetime "2006-01-02" .Tag.Date }}
+
+{{ if .CommitGroups -}}
 {{ range .CommitGroups -}}
 ### {{ .Title }}
 {{ range .Commits -}}
-- {{ if .Scope }}**{{ .Scope }}:** {{ end }}{{ .Subject }}
+- {{ if .Scope }}**{{ .Scope }}:** {{ end }}{{ .Subject }} ([{{ .Hash.Short }}]({{ $.Info.RepositoryURL }}/commit/{{ .Hash.Long }}))
 {{ end }}
 {{ end -}}
+{{ end -}}
 
-{{- if .RevertCommits -}}
-### Reverts
+{{ if .RevertCommits -}}
+### ⏪ Reverts
 {{ range .RevertCommits -}}
-- {{ .Revert.Header }}
-{{ end }}
+- {{ .Revert.Header }} ([{{ .Hash.Short }}]({{ $.Info.RepositoryURL }}/commit/{{ .Hash.Long }}))
+{{ end -}}
 {{ end -}}
 
-{{- if .NoteGroups -}}
+{{ if .NoteGroups -}}
 {{ range .NoteGroups -}}
-### {{ .Title }}
+### 💥 {{ .Title }}
 {{ range .Notes }}
-{{ .Body }}
+- {{ .Body }}
 {{ end }}
 {{ end -}}
 {{ end -}}
-{{ end -}}
 
-{{- if .Versions }}
-[Unreleased]: {{ .Info.RepositoryURL }}/compare/{{ $latest := index .Versions 0 }}{{ $latest.Tag.Name }}...HEAD
-{{ range .Versions -}}
-{{ if .Tag.Previous -}}
-[{{ .Tag.Name }}]: {{ $.Info.RepositoryURL }}/compare/{{ .Tag.Previous.Name }}...{{ .Tag.Name }}
 {{ end -}}
-{{ end -}}
-{{ end -}}
+{{ else }}
+*(No releases yet)*  
 {{ end -}}
